@@ -23,26 +23,29 @@ func WsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
-	ch := ClientHandler{}
+	ch := NewClientHandler()
 
 	// Create a function that sends messages to the client
 	ch.OnConnect(func(msg WSPacket) {
 		data, err := serializeMessage(msg)
 		if err != nil {
 			log.Println(err)
+			ch.OnDisconnect()
 			return
 		}
 		if err := conn.WriteMessage(websocket.BinaryMessage, data); err != nil {
 			log.Println(err)
+			ch.OnDisconnect()
 			return
 		}
 	})
 
-
+	
 	for {
 		messageType, msg, err := conn.ReadMessage()
 		if err != nil {
 			log.Println(err)
+			ch.OnDisconnect()
 			return
 		}
 
@@ -54,6 +57,7 @@ func WsHandler(w http.ResponseWriter, r *http.Request) {
 		message, err := parseMessage(msg)
 		if err != nil {
 			log.Println("Error parsing message:", err)
+			ch.OnDisconnect()
 			continue
 		}
 
