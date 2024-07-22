@@ -23,11 +23,32 @@ func WsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
+	ch := ClientHandler{}
+
+	// Create a function that sends messages to the client
+	ch.OnConnect(func(msg WSPacket) {
+		data, err := serializeMessage(msg)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		if err := conn.WriteMessage(websocket.BinaryMessage, data); err != nil {
+			log.Println(err)
+			return
+		}
+	})
+
+
 	for {
 		messageType, msg, err := conn.ReadMessage()
 		if err != nil {
 			log.Println(err)
 			return
+		}
+
+		if messageType != websocket.BinaryMessage {
+			log.Println("Received non-binary message")
+			continue
 		}
 
 		message, err := parseMessage(msg)
@@ -37,10 +58,6 @@ func WsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		fmt.Printf("Received: %+v\n", message)
-
-		if err := conn.WriteMessage(messageType, msg); err != nil {
-			log.Println(err)
-			return
-		}
+		ch.OnMessage(message)
 	}
 }

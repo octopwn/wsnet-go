@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-type Message struct {
+type WSPacket struct {
 	Length  uint32
 	CmdType uint16
 	Token   [16]byte
@@ -15,7 +15,7 @@ type Message struct {
 
 
 
-func serializeMessage(message Message) ([]byte, error) {
+func serializeMessage(message WSPacket) ([]byte, error) {
 	buf := make([]byte, 22+len(message.Data))
 
 	binary.BigEndian.PutUint32(buf[0:4], message.Length)
@@ -26,8 +26,8 @@ func serializeMessage(message Message) ([]byte, error) {
 	return buf, nil
 }
 
-func parseMessage(data []byte) (Message, error) {
-	var message Message
+func parseMessage(data []byte) (WSPacket, error) {
+	var message WSPacket
 
 	if len(data) < 22 { // Minimum size: 4 (length) + 2 (cmdtype) + 16 (token)
 		return message, fmt.Errorf("data too short")
