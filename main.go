@@ -7,7 +7,7 @@ import (
 )
 
 func main() {
-	http.HandleFunc("/ws", wsnet.wsHandler)
+	http.HandleFunc("/ws", wsnet.WsHandler)
 	log.Println("WebSocket server started on :8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
