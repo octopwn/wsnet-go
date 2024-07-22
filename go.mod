@@ -1,4 +1,4 @@
-module github.com/octopwn/wsnet-go/wsnet
+module github.com/octopwn/wsnet-go
 
 go 1.22.5
 

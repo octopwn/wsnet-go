@@ -1,19 +1,13 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"net/http"
-	"github.com/gorilla/websocket"
-	"github.com/octopwn/wsnet-go"
+	"github.com/octopwn/wsnet-go/wsnet"
 )
 
-
-
-
-
 func main() {
-	http.HandleFunc("/ws", wsHandler)
+	http.HandleFunc("/ws", wsnet.wsHandler)
 	log.Println("WebSocket server started on :8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
