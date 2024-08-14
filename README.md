@@ -22,8 +22,8 @@ Upon starting the application, a WebSocket server is set up on `localhost` at po
 
 ## Getting Started
 ### Prerequisites
-- Golang version X.X.X or later
-- [OctoPwn](link_to_octopwn) set up and running
+- Golang version 1.22.5 or later
+- [OctoPwn](https://live.octopwn.com) set up and running
 
 ### Installation
 Clone the repository and navigate into the project directory:
