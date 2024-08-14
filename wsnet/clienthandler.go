@@ -67,11 +67,11 @@ func (ch *ClientHandler) RemoveConnection(key string) {
 
 
 func (c *ClientHandler) OnMessage(message WSPacket) {
-	fmt.Printf("Received: %+v\n", message)
+	//fmt.Printf("Received: %+v\n", message)
 	switch message.CmdType {
 	case 0:
 		{
-			fmt.Println("OK message received")
+			//fmt.Println("OK message received")
 			key := fmt.Sprintf("%x", message.Token)
 			if _, ok := c.connections[key]; ok {
 				c.RemoveConnection(key)
@@ -81,7 +81,7 @@ func (c *ClientHandler) OnMessage(message WSPacket) {
 		}
 	case 1:
 		{
-			fmt.Println("Error message received")
+			//fmt.Println("Error message received")
 			key := fmt.Sprintf("%x", message.Token)
 			if conn, ok := c.connections[key]; ok {
 				conn.Close()
@@ -91,7 +91,7 @@ func (c *ClientHandler) OnMessage(message WSPacket) {
 		}
 	case 7:
 		{
-			fmt.Println("Socket Data message received")
+			//fmt.Println("Socket Data message received")
 			key := fmt.Sprintf("%x", message.Token)
 			if conn, ok := c.connections[key]; ok {
 				conn.Write(message.Data.([]byte))
@@ -100,28 +100,28 @@ func (c *ClientHandler) OnMessage(message WSPacket) {
 
 	case 5:
 		{
-			fmt.Println("Socket Connect message received")
+			//fmt.Println("Socket Connect message received")
 			if connData, ok := message.Data.(*WSNConnect); ok {
 				if(connData.Bind) {
 					fmt.Println("Bind not supported!")
 					return
 				} 
 			
-				fmt.Println("TCP Protocol")
+				//fmt.Println("TCP Protocol")
 				// Connect to the TCP server
 				// Create a new TCP connection
-				fmt.Println("Connecting to TCP server at IP:", connData.IP, "Port:", connData.Port)
+				//fmt.Println("Connecting to TCP server at IP:", connData.IP, "Port:", connData.Port)
 				timeout := time.Duration(1000 * time.Millisecond)
 				conn, err := net.DialTimeout("tcp", connData.IP + ":" + strconv.Itoa(int(connData.Port)), timeout)
 				if err != nil {
-					fmt.Println("Error connecting to TCP server:", err)
+					//fmt.Println("Error connecting to TCP server:", err)
 					c.sendError(message.Token, err)
 					return
 				}
 
 				tokenStr := fmt.Sprintf("%x", message.Token)
 				c.AddConnection(tokenStr, conn)
-				fmt.Println("Connected to TCP server")
+				//fmt.Println("Connected to TCP server")
 
 				// Start a goroutine to handle incoming data
 				go c.handleIncomingData(message.Token, tokenStr, conn, c)
@@ -140,7 +140,7 @@ func (c *ClientHandler) sendOK(token [16]byte) {
 }
 
 func (c *ClientHandler) sendError(token [16]byte, err error) {
-	fmt.Println("Error:", err)
+	//fmt.Println("Error:", err)
 	// Create an error packet
 	byteErr := []byte(err.Error())
 	errorPacket := WSPacket{
@@ -178,7 +178,7 @@ func (c *ClientHandler) handleIncomingData(token [16]byte, tokenStr string, conn
 		buffer := make([]byte, 65535) // Adjust the buffer size as needed
 		n, err := reader.Read(buffer)
 		if err != nil {
-			fmt.Println("Error reading from connection:", err)
+			//fmt.Println("Error reading from connection:", err)
 			// Handle error (e.g., remove connection from map, close connection, etc.)
 			ch.RemoveConnection(tokenStr)
 			ch.sendOK(token)
@@ -186,7 +186,7 @@ func (c *ClientHandler) handleIncomingData(token [16]byte, tokenStr string, conn
 		}
 		// Process the received bytes
 		receivedData := buffer[:n]
-		fmt.Printf("Received data on connection %s: %x\n", tokenStr, receivedData)
+		//fmt.Printf("Received data on connection %s: %x\n", tokenStr, receivedData)
 		// You can add further processing of the receivedData as needed
 		// Send the received data to the client
 		ch.sendSocketData(token, receivedData)
