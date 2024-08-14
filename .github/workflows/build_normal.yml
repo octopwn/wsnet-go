@@ -31,5 +31,5 @@ jobs:
     - name: Upload binaries as artifact
       uses: actions/upload-artifact@v3
       with:
-        name: myapp-binaries
+        name: wsnet_go_${{ matrix.goos }}_${{ matrix.goarch }}
         path: dist/
