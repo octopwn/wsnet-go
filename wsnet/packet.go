@@ -119,6 +119,11 @@ func parseMessage(data []byte) (WSPacket, error) {
 			message.Data = data[22:]
 			return message, nil
 		}
+	case 8:
+		{
+			// getinfo
+			return message, nil
+		}
 	default:
 		{
 			return message, fmt.Errorf("Unknown command type: %d", message.CmdType)
@@ -154,5 +159,14 @@ func CreateContinuePacket(token [16]byte) WSPacket {
 
 func CreateSDPacket(token [16]byte, data []byte) WSPacket {
 	return WSPacket{Length: (uint32)(22 + len(data)) , CmdType: 7, Token: token, Data: data}
+}
+
+func CreateGetInfoPacket(token [16]byte, infoReply *WSNGetInfoReply) WSPacket {
+	infodata, err := infoReply.ToData()
+	if err != nil {
+		fmt.Printf("Failed to serialize getinfo reply: %v", err)
+		return WSPacket{Length: 22, CmdType: 8, Token: token}
+	}
+	return WSPacket{Length: 22, CmdType: 8, Token: token, Data: infodata}
 }
 

@@ -3,7 +3,167 @@ package wsnet
 import (
 	"bytes"
 	"encoding/binary"
+    "os"
+    "os/user"
+    "runtime"
+    "strings"
+	"unicode/utf16"
 )
+
+type WSNGetInfoReply struct {
+	pid string
+	username  string // utf-16-le
+	domain  string // utf-16-le
+	logonserver  string // utf-16-le
+	cpuarch  string
+	hostname  string // utf-16-le
+	usersid  string
+	os  string
+	logonserverip  string
+}
+
+func normalizePlatform(goos string) string {
+    switch goos {
+    case "windows":
+        return "WINDOWS"
+    case "linux":
+        return "LINUX"
+    case "darwin":
+        return "MACOS"
+    default:
+        // fallback for other GOOS values (freebsd, netbsd, etc.)
+        return strings.ToUpper(goos)
+    }
+}
+
+func BuildGetInfoReply() (*WSNGetInfoReply, error) {
+	info := &WSNGetInfoReply{
+        pid:    string(os.Getpid()),
+        os: normalizePlatform(runtime.GOOS),
+    }
+
+	// Get the current user
+	user, err := user.Current()
+	if err != nil {
+		info.username = "unknown"
+	} else {
+		info.username = user.Username
+	}
+	
+
+	// Get the hostname
+	hostname, err := os.Hostname()
+	if err != nil {
+		info.hostname = "unknown"
+	} else {
+		info.hostname = hostname
+	}
+
+	// CPU Architecture
+	info.cpuarch = "X64"
+
+	return info, nil
+}
+
+func NewWSNGetInfoReply(pid, username, domain, logonserver, cpuarch, hostname, usersid, os, logonserverip string) *WSNGetInfoReply {
+	return &WSNGetInfoReply{
+		pid: pid,
+		username: username,
+		domain: domain,
+		logonserver: logonserver,
+		cpuarch: cpuarch,
+		hostname: hostname,
+		usersid: usersid,
+		os: os,
+		logonserverip: logonserverip,
+	}
+}
+
+// encodeUTF16LE takes a Go string s and returns a UTF-16-LE-encoded []byte.
+func encodeUTF16LE(s string) []byte {
+    // Convert s into a slice of UTF-16 code units
+    u16 := utf16.Encode([]rune(s))
+
+    // Prepare a buffer to hold the UTF-16-LE bytes
+    buf := new(bytes.Buffer)
+
+    // For each code unit, write it as a little-endian uint16
+    for _, codeUnit := range u16 {
+        // We use binary.Write with binary.LittleEndian
+        // to write the 2 bytes of each UTF-16 code unit
+        _ = binary.Write(buf, binary.LittleEndian, codeUnit)
+    }
+
+    return buf.Bytes()
+}
+
+func (w *WSNGetInfoReply) ToData() ([]byte, error) {
+	buff := new(bytes.Buffer)
+
+	// Write the pid
+	pidLength := uint32(len(w.pid))
+	binary.Write(buff, binary.BigEndian, pidLength)
+	if _, err := buff.WriteString(w.pid); err != nil {
+		return nil, err
+	}
+
+	// Write the username
+	usernameLength := uint32(len(w.username))
+	usernameBytes := encodeUTF16LE(w.username)
+	binary.Write(buff, binary.BigEndian, usernameLength)
+	binary.Write(buff, binary.BigEndian, usernameBytes)
+
+	// Write the domain
+	domainLength := uint32(len(w.domain))
+	domainBytes := encodeUTF16LE(w.domain)
+	binary.Write(buff, binary.BigEndian, domainLength)
+	binary.Write(buff, binary.BigEndian, domainBytes)
+
+	// Write the logonserver
+	logonserverLength := uint32(len(w.logonserver))
+	logonserverBytes := encodeUTF16LE(w.logonserver)
+	binary.Write(buff, binary.BigEndian, logonserverLength)
+	binary.Write(buff, binary.BigEndian, logonserverBytes)
+
+	// Write the cpuarch
+	cpuarchLength := uint32(len(w.cpuarch))
+	binary.Write(buff, binary.BigEndian, cpuarchLength)
+	if _, err := buff.WriteString(w.cpuarch); err != nil {
+		return nil, err
+	}
+
+	// Write the hostname
+	hostnameLength := uint32(len(w.hostname))
+	hostnameBytes := encodeUTF16LE(w.hostname)
+	binary.Write(buff, binary.BigEndian, hostnameLength)
+	binary.Write(buff, binary.BigEndian, hostnameBytes)
+
+	// Write the usersid
+	usersidLength := uint32(len(w.usersid))
+	binary.Write(buff, binary.BigEndian, usersidLength)
+	if _, err := buff.WriteString(w.usersid); err != nil {
+		return nil, err
+	}
+
+	// Write the os
+	osLength := uint32(len(w.os))
+	binary.Write(buff, binary.BigEndian, osLength)
+	if _, err := buff.WriteString(w.os); err != nil {
+		return nil, err
+	}
+
+	// Write the logonserverip
+	logonserveripLength := uint32(len(w.logonserverip))
+	binary.Write(buff, binary.BigEndian, logonserveripLength)
+	if _, err := buff.WriteString(w.logonserverip); err != nil {
+		return nil, err
+	}
+
+	return buff.Bytes(), nil
+}
+
+
+
 
 type WSNErr struct {
 	Reason string

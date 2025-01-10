@@ -18,7 +18,7 @@ var upgrader = websocket.Upgrader{
 }
 
 
-func StartWebsocketServer(disableSecurity *bool, address *string, port *int, uriPath *string) {
+func StartWebsocketServer(disableSecurity *bool, address *string, port *int, uriPath *string, infoReply *WSNGetInfoReply) {
 	// Determine URI path
 	var path string
 	if *disableSecurity {

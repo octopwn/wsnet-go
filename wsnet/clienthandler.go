@@ -15,6 +15,7 @@ type ClientHandler struct {
 	connections map[string]net.Conn
 	connectionsMu sync.Mutex       // Mutex for synchronizing access to connections
 	outgoing    chan WSPacket       // Channel for outgoing messages
+	inforeply *WSNGetInfoReply
 
 }
 
@@ -97,6 +98,12 @@ func (c *ClientHandler) OnMessage(message WSPacket) {
 				conn.Write(message.Data.([]byte))
 			}
 		}
+	case 8:
+		{
+			//fmt.Println("GetInfo message received")
+			// Create a new GetInfo packet
+			c.sendGetInfo(message.Token)
+		}
 
 	case 5:
 		{
@@ -166,8 +173,12 @@ func (c *ClientHandler) sendSocketData(token [16]byte, data []byte) {
 
 func (c *ClientHandler) sendContinue(token [16]byte) {
 	continuePacket := CreateContinuePacket(token)
-
 	c.outgoing <- continuePacket
+}
+
+func (c *ClientHandler) sendGetInfo(token [16]byte) {
+	getInfoPacket := CreateGetInfoPacket(token, c.inforeply)
+	c.outgoing <- getInfoPacket
 }
 
 // Method to handle incoming socket data
