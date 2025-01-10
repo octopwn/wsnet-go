@@ -34,7 +34,7 @@ func StartWebsocketServer(disableSecurity *bool, address *string, port *int, uri
 	}
 
 	// Set up HTTP handler
-	http.HandleFunc(path, WsHandler)
+	http.HandleFunc(path, WsHandler(infoReply))
 
 	// Start server
 	addr := fmt.Sprintf("%s:%d", *address, *port)
@@ -93,55 +93,58 @@ func StartWebsocketServer(disableSecurity *bool, address *string, port *int, uri
 	}
 }
 
+func WsHandler(infoReply *WSNGetInfoReply) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        upgrader.CheckOrigin = func(r *http.Request) bool { return true }
+        conn, err := upgrader.Upgrade(w, r, nil)
+        if err != nil {
+            log.Println(err)
+            return
+        }
+        defer conn.Close()
 
-func WsHandler(w http.ResponseWriter, r *http.Request) {
-	upgrader.CheckOrigin = func(r *http.Request) bool { return true }
-	conn, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	defer conn.Close()
+        ch := NewClientHandler()
 
-	ch := NewClientHandler()
+        // Example usage: use infoReply to send to client or log
+        log.Printf("infoReply: %+v\n", infoReply)
+		ch.inforeply = infoReply
+        
+        ch.OnConnect(func(msg WSPacket) {
+            data, err := serializeMessage(msg)
+            if err != nil {
+                log.Println(err)
+                ch.OnDisconnect()
+                return
+            }
+            if err := conn.WriteMessage(websocket.BinaryMessage, data); err != nil {
+                log.Println(err)
+                ch.OnDisconnect()
+                return
+            }
+        })
 
-	// Create a function that sends messages to the client
-	ch.OnConnect(func(msg WSPacket) {
-		data, err := serializeMessage(msg)
-		if err != nil {
-			log.Println(err)
-			ch.OnDisconnect()
-			return
-		}
-		if err := conn.WriteMessage(websocket.BinaryMessage, data); err != nil {
-			log.Println(err)
-			ch.OnDisconnect()
-			return
-		}
-	})
+        for {
+            messageType, msg, err := conn.ReadMessage()
+            if err != nil {
+                log.Println(err)
+                ch.OnDisconnect()
+                return
+            }
 
-	
-	for {
-		messageType, msg, err := conn.ReadMessage()
-		if err != nil {
-			log.Println(err)
-			ch.OnDisconnect()
-			return
-		}
+            if messageType != websocket.BinaryMessage {
+                log.Println("Received non-binary message")
+                continue
+            }
 
-		if messageType != websocket.BinaryMessage {
-			log.Println("Received non-binary message")
-			continue
-		}
+            message, err := parseMessage(msg)
+            if err != nil {
+                log.Println("Error parsing message:", err)
+                ch.OnDisconnect()
+                continue
+            }
 
-		message, err := parseMessage(msg)
-		if err != nil {
-			log.Println("Error parsing message:", err)
-			ch.OnDisconnect()
-			continue
-		}
-
-		fmt.Printf("Received: %+v\n", message)
-		go ch.OnMessage(message)
-	}
+            fmt.Printf("Received: %+v\n", message)
+            go ch.OnMessage(message)
+        }
+    }
 }

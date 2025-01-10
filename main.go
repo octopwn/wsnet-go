@@ -12,11 +12,13 @@ func main() {
 	disableSecurity := flag.Bool("disable-security", false, "Disable TLS security")
 	flag.Parse()
 
-
-	infoReply *WSNGetInfoReply, err = BuildGetInfoReply() // it should be static because name resolution is expensive
+	// inforeply is static but requires domain lookups, so we build it here once
+	// and pass it to the WebSocket handler
+	infoReply, err := wsnet.BuildGetInfoReply()
 	if err != nil {
-		log.Fatalf("Failed to build getinfo reply: %v", err)
+		panic(err)
 	}
+
 
 	// Start the WebSocket server
 	wsnet.StartWebsocketServer(disableSecurity, address, port, uriPath, infoReply)

@@ -1,6 +1,7 @@
 package wsnet
 
 import (
+	"fmt"
 	"bytes"
 	"encoding/binary"
     "os"
@@ -8,6 +9,7 @@ import (
     "runtime"
     "strings"
 	"unicode/utf16"
+	"strconv"
 )
 
 type WSNGetInfoReply struct {
@@ -38,7 +40,7 @@ func normalizePlatform(goos string) string {
 
 func BuildGetInfoReply() (*WSNGetInfoReply, error) {
 	info := &WSNGetInfoReply{
-        pid:    string(os.Getpid()),
+        pid:    strconv.Itoa(os.Getpid()),
         os: normalizePlatform(runtime.GOOS),
     }
 
@@ -50,7 +52,6 @@ func BuildGetInfoReply() (*WSNGetInfoReply, error) {
 		info.username = user.Username
 	}
 	
-
 	// Get the hostname
 	hostname, err := os.Hostname()
 	if err != nil {
@@ -101,6 +102,7 @@ func (w *WSNGetInfoReply) ToData() ([]byte, error) {
 	buff := new(bytes.Buffer)
 
 	// Write the pid
+	fmt.Println("pid:", w.pid)
 	pidLength := uint32(len(w.pid))
 	binary.Write(buff, binary.BigEndian, pidLength)
 	if _, err := buff.WriteString(w.pid); err != nil {

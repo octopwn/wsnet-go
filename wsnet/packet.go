@@ -45,11 +45,6 @@ func serializeMessage(message WSPacket) ([]byte, error) {
 }
 
 
-
-
-
-
-
 func parseMessage(data []byte) (WSPacket, error) {
 	var message WSPacket
 
@@ -126,7 +121,9 @@ func parseMessage(data []byte) (WSPacket, error) {
 		}
 	default:
 		{
-			return message, fmt.Errorf("Unknown command type: %d", message.CmdType)
+			message.Data = data[22:]
+			return message, nil
+			//return message, fmt.Errorf("Unknown command type: %d", message.CmdType)
 		
 		}
 	} 		

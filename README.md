@@ -15,9 +15,9 @@ Upon starting the application, a WebSocket server is set up on `localhost` at po
 |-------------------------|---------|-------|-----|
 | TCP Client              | ✔       | ✔     | ✔   |
 | TCP Server              | ✘       | ✘     | ✘   |
-| UDP Client              | ✘       | ✘     | ✘   |
+| UDP Client              | ✔       | ✔     | ✔   |
 | UDP Server              | ✘       | ✘     | ✘   |
-| Local File Browser      | ✘       | ✘     | ✘   |
+| Local File Browser      | ✔       | ✔     | ✔   |
 | Authentication Proxy    | ✘       | ✘     | ✘   |
 
 ## Getting Started
@@ -62,8 +62,7 @@ The application currently only supports the TCP client functionality. Other feat
 # Roadmap
 
 - [ ] **TCP Server Support**: Enable the application to function as a TCP server, allowing it to accept incoming TCP connections.
-- [ ] **UDP Client and Server**: Add support for UDP client and server functionalities to handle datagram-based communication.
-- [ ] **Local File Browser**: Implement a local file browser to allow for remote file exploration and management.
+- [ ] **UDP Server**: Add support for UDP server functionalities to handle datagram-based communication.
 - [ ] **Authentication Proxy**: Introduce an authentication proxy feature to handle user authentication for network services.
 - [ ] **Cross-Platform Improvements**: Enhance the compatibility and performance of the application across all supported platforms.
 
