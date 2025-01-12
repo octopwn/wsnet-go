@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"github.com/octopwn/wsnet-go/wsnet"
+	"github.com/octopwn/wsnet-go/sspiproxy"
 )
 
 func main() {
@@ -19,7 +20,7 @@ func main() {
 		panic(err)
 	}
 
-
+	sspiproxy.localSSPITest()
 	// Start the WebSocket server
 	wsnet.StartWebsocketServer(disableSecurity, address, port, uriPath, infoReply)
 }

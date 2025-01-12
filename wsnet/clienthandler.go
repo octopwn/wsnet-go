@@ -10,14 +10,20 @@ import (
 	"sync"
 	"os"
 	"path/filepath"
+	"log"
+	"math/rand"
+	"strings"
 )
 
 type ClientHandler struct {
 	send func(WSPacket)
 	connections map[string]net.Conn
 	fileHandles map[string]*os.File
+	serverSockets map[string]net.Listener
+	serverTokenToConn map[string]string
 	connectionsMu sync.Mutex       // Mutex for synchronizing access to connections
 	fileHandlesMu sync.Mutex 
+	serverSocketsMu sync.Mutex
 	outgoing    chan WSPacket       // Channel for outgoing messages
 	inforeply *WSNGetInfoReply
 
@@ -28,6 +34,9 @@ func NewClientHandler() *ClientHandler {
 	return &ClientHandler{
 		connections: make(map[string]net.Conn),
 		connectionsMu: sync.Mutex{}, 
+		serverSockets: make(map[string]net.Listener),
+		serverSocketsMu: sync.Mutex{},
+		serverTokenToConn: make(map[string]string),
 		fileHandles: make(map[string]*os.File),
 		fileHandlesMu: sync.Mutex{},
 		outgoing:    make(chan WSPacket, 1024), // Initialize the outgoing channel
@@ -72,10 +81,27 @@ func (ch *ClientHandler) AddFileHandle(key string, file *os.File) {
 	ch.fileHandles[key] = file
 }
 
+func (ch *ClientHandler) AddServerSocket(key string, conn net.Listener) {
+	ch.serverSocketsMu.Lock()
+	defer ch.serverSocketsMu.Unlock()
+	ch.serverSockets[key] = conn
+}
+
 func (ch *ClientHandler) RemoveConnection(key string) {
 	ch.connectionsMu.Lock()
 	defer ch.connectionsMu.Unlock()
 	delete(ch.connections, key)
+}
+
+func (ch *ClientHandler) RemoveServerSocket(key string) {
+	ch.serverSocketsMu.Lock()
+	defer ch.serverSocketsMu.Unlock()
+	for k, v := range ch.serverTokenToConn {
+		if v == key {
+			ch.RemoveConnection(k)
+		}
+	}
+	delete(ch.serverSockets, key)
 }
 
 func (ch *ClientHandler) RemoveFileHandle(key string) {
@@ -94,7 +120,13 @@ func (c *ClientHandler) OnMessage(message WSPacket) {
 			key := fmt.Sprintf("%x", message.Token)
 			if _, ok := c.connections[key]; ok {
 				c.RemoveConnection(key)
+				return
 			}
+			if _, ok := c.fileHandles[key]; ok {
+				c.RemoveFileHandle(key)
+				return
+			}
+
 
 			// if not in connections map, it could be in the future to be in the auth or file map but it's not implemented yet
 		}
@@ -105,7 +137,13 @@ func (c *ClientHandler) OnMessage(message WSPacket) {
 			if conn, ok := c.connections[key]; ok {
 				conn.Close()
 				c.RemoveConnection(fmt.Sprintf("%x", message.Token))
+				return;
 			}
+			if _, ok := c.fileHandles[key]; ok {
+				c.RemoveFileHandle(key)
+				return
+			}
+
 			//same as OK
 		}
 	case 7:
@@ -128,9 +166,37 @@ func (c *ClientHandler) OnMessage(message WSPacket) {
 			//fmt.Println("Socket Connect message received")
 			if connData, ok := message.Data.(*WSNConnect); ok {
 				if(connData.Bind) {
-					fmt.Println("Bind not supported!")
-					return
-				} 
+					if (connData.Protocol == "UDP") {				
+						conn, err := net.ListenUDP("udp", nil)
+						if err != nil {
+							c.sendError(message.Token, err)
+							return
+						}
+						tokenStr := fmt.Sprintf("%x", message.Token)
+						c.AddConnection(tokenStr, conn)
+						connectionToken := [16]byte{} // static for now
+						go c.handleIncomingDataUDP(message.Token, tokenStr, connectionToken, conn, c)
+						c.sendContinue(message.Token)
+						return
+					} else {
+						// TCP server
+						//fmt.Println("TCP Protocol")
+						// Connect to the TCP server
+						// Create a new TCP connection
+						//fmt.Println("Connecting to TCP server at IP:", connData.IP, "Port:", connData.Port)
+						conn, err := net.Listen("tcp", connData.IP + ":" + strconv.Itoa(int(connData.Port)))
+						if err != nil {
+							//fmt.Println("Error connecting to TCP server:", err)
+							c.sendError(message.Token, err)
+							return;
+						}
+						tokenStr := fmt.Sprintf("%x", message.Token)
+						go c.handleTCPServer(message.Token, tokenStr, conn, c)
+						c.AddServerSocket(tokenStr, conn)
+						c.sendContinue(message.Token)
+						return
+					}
+				}
 				
 				fmt.Println("Connecting to", connData.Protocol, "server at IP:", connData.IP, "Port:", connData.Port)
 				if (connData.Protocol == "TCP") {
@@ -152,24 +218,12 @@ func (c *ClientHandler) OnMessage(message WSPacket) {
 					//fmt.Println("Connected to TCP server")
 
 					// Start a goroutine to handle incoming data
-					go c.handleIncomingData(message.Token, tokenStr, conn, c)
+					go c.handleIncomingData(message.Token, tokenStr, conn, c, nil)
 					c.sendContinue(message.Token)
 
 				} else {
-					fmt.Println("UDP Protocol")
-					//timeout := 1 * time.Second // or similar
-					addr := net.JoinHostPort(connData.IP, strconv.Itoa(int(connData.Port)))
-					
-					fmt.Println("Connecting to UDP server at IP:", addr)
-					// net.DialTimeout doesn't apply the same way to UDP, but we can do a Resolve + Dial:
-					raddr, err := net.ResolveUDPAddr("udp", addr)
-					if err != nil {
-						c.sendError(message.Token, err)
-						return
-					}
-
-					
-					conn, err := net.DialUDP("udp", nil, raddr)
+					fmt.Println("UDP Protocol")					
+					conn, err := net.ListenUDP("udp", nil)
 					if err != nil {
 						c.sendError(message.Token, err)
 						return
@@ -205,7 +259,7 @@ func (c *ClientHandler) OnMessage(message WSPacket) {
 			}
 
 			key := fmt.Sprintf("%x", message.Token)
-			conn, ok := c.connections[key]
+			conn, ok := c.connections[key].(*net.UDPConn)
 			if !ok {
 				fmt.Println("Error getting connection")
 				c.sendError(message.Token, fmt.Errorf("Error getting connection"))
@@ -213,7 +267,12 @@ func (c *ClientHandler) OnMessage(message WSPacket) {
 			}
 
 			fmt.Println("Sending data to client")
-			_, err = conn.Write(connData.Data)
+			dst, err := net.ResolveUDPAddr("udp", connData.ClientIP + ":" + strconv.Itoa(int(connData.ClientPort)))
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			_, err = conn.WriteTo(connData.Data, dst)
 			if err != nil {
 				fmt.Println("Error sending data to client")
 				c.sendError(message.Token, fmt.Errorf("Error sending data to client"))
@@ -553,9 +612,9 @@ func (c *ClientHandler) sendSocketData(token [16]byte, data []byte) {
 	c.outgoing <- dataPacket
 }
 
-func (c *ClientHandler) sendServerSocketData(token [16]byte, data *WSNServerSocketData) {
+func (c *ClientHandler) sendServerSocketData(token [16]byte, data []byte) {
 	dataPacket := WSPacket{
-		Length: (uint32)(22 + len(data.Data)),
+		Length: (uint32)(22 + len(data)),
 		CmdType: 200,
 		Token: token,
 		Data: data,
@@ -575,8 +634,13 @@ func (c *ClientHandler) sendGetInfo(token [16]byte) {
 }
 
 // Method to handle incoming socket data
-func (c *ClientHandler) handleIncomingData(token [16]byte, tokenStr string, conn net.Conn, ch *ClientHandler) {
+func (c *ClientHandler) handleIncomingData(token [16]byte, tokenStr string, conn net.Conn, ch *ClientHandler, connectionTokenOrNil []byte) {
 	reader := bufio.NewReader(conn)
+	connectionToken := [16]byte{}
+	if connectionTokenOrNil != nil {
+		connectionToken := make([]byte, 16)
+		copy(connectionToken, connectionTokenOrNil)
+	}
 	for {
 		// Create a buffer to store the incoming data
 		buffer := make([]byte, 65535) // Adjust the buffer size as needed
@@ -584,8 +648,14 @@ func (c *ClientHandler) handleIncomingData(token [16]byte, tokenStr string, conn
 		if err != nil {
 			//fmt.Println("Error reading from connection:", err)
 			// Handle error (e.g., remove connection from map, close connection, etc.)
-			ch.RemoveConnection(tokenStr)
-			ch.sendOK(token)
+			if(connectionTokenOrNil != nil) {
+				// this belongs to a server socket
+				ch.RemoveConnection(tokenStr)
+				ch.sendOK(connectionToken)
+			} else {
+				ch.RemoveConnection(tokenStr)
+				ch.sendOK(token)
+			}
 			break
 		}
 		// Process the received bytes
@@ -593,7 +663,36 @@ func (c *ClientHandler) handleIncomingData(token [16]byte, tokenStr string, conn
 		//fmt.Printf("Received data on connection %s: %x\n", tokenStr, receivedData)
 		// You can add further processing of the receivedData as needed
 		// Send the received data to the client
-		ch.sendSocketData(token, receivedData)
+		if (connectionTokenOrNil != nil) {
+			// this belongs to a server socket
+			// extract port as string from conn.RemoteAddr()
+
+			remport := conn.RemoteAddr().String()
+			remport = remport[strings.LastIndex(remport, ":")+1:]
+			remportInt, err := strconv.Atoi(remport)
+			if err != nil {
+				fmt.Println("Error converting port to int")
+				ch.RemoveConnection(tokenStr)
+				ch.sendOK(connectionToken)
+				break
+			}
+
+			ds := WSNServerSocketData{
+				ConnectionToken : connectionToken,
+				Data : receivedData,
+				ClientIP : conn.RemoteAddr().String(),
+				ClientPort : uint16(remportInt),
+			}
+			data, err := ds.ToData()
+			if err != nil {
+				fmt.Printf("Failed to serialize server socket data: %v", err)
+				continue
+			}
+			ch.sendServerSocketData(token, data)
+
+		} else {
+			ch.sendSocketData(token, receivedData)
+		}
 	}
 }
 
@@ -616,14 +715,71 @@ func (c *ClientHandler) handleIncomingDataUDP(token [16]byte, tokenStr string, c
         // Slice the buffer to the actual data length
         receivedData := buf[:n]
 
-        ds := &WSNServerSocketData{
+        ds := WSNServerSocketData{
 			ConnectionToken : ct,
 			Data : receivedData,
 			ClientIP : addr.IP.String(),
 			ClientPort : uint16(addr.Port),
 		}
-        ch.sendServerSocketData(token, ds)
+		data, err := ds.ToData()
+		if err != nil {
+			fmt.Printf("Failed to serialize server socket data: %v", err)
+			continue
+		}
+        ch.sendServerSocketData(token, data)
     }
+}
+
+func (c *ClientHandler) handleTCPServer(token [16]byte, tokenStr string, conn net.Listener, ch *ClientHandler) {
+	for {
+		// Accept a new connection
+		newConn, err := conn.Accept()
+		if err != nil {
+			fmt.Println("Error accepting connection:", err)
+			ch.RemoveConnection(tokenStr)
+			ch.sendOK(token)
+			break
+		}
+		// generate random 16 byte token
+		connectiontokenRaw := make([]byte, 16)
+		_, err = rand.Read(connectiontokenRaw)
+		if err != nil {
+			log.Fatal(err)
+		}
+		connectiontoken := [16]byte{}
+		copy(connectiontoken[:], connectiontokenRaw)
+
+
+		connectiontokenStr := fmt.Sprintf("%x", connectiontoken)
+		//fmt.Println("Accepted connection from", newConn.RemoteAddr())
+		// Add the new connection to the map
+		ch.AddConnection(connectiontokenStr, newConn)
+		// Start a goroutine to handle incoming data
+		go ch.handleIncomingData(token, tokenStr, newConn, ch, connectiontokenRaw)
+		// Send the connection token to the client with empty data
+		remaddr := newConn.RemoteAddr().String()
+		remport := remaddr[strings.LastIndex(remaddr, ":")+1:]
+		remportInt, err := strconv.Atoi(remport)
+		if err != nil {
+			fmt.Println("Error converting port to int")
+			ch.RemoveConnection(tokenStr)
+			ch.sendOK(token)
+			break
+		}
+
+		ds := WSNServerSocketData{
+			ConnectionToken : connectiontoken,
+			Data : []byte{},
+			ClientIP : newConn.RemoteAddr().String(),
+			ClientPort : uint16(remportInt),
+		}
+		data, err := ds.ToData()
+		if err != nil {
+			fmt.Printf("Failed to serialize server socket data: %v", err)
+			continue
+		}
+		ch.sendServerSocketData(token, data)
+	}
 }
 
 
