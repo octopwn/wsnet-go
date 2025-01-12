@@ -2,15 +2,15 @@ package main
 
 import (
 	"flag"
+
 	"github.com/octopwn/wsnet-go/wsnet"
-	"github.com/octopwn/wsnet-go/sspiproxy"
 )
 
 func main() {
 	port := flag.Int("port", 8700, "Port to listen on")
-	address := flag.String("address", "localhost", "Address to bind")
-	uriPath := flag.String("uri-path", "", "URI path (or UUID) for WebSocket connection")
-	disableSecurity := flag.Bool("disable-security", false, "Disable TLS security")
+	address := flag.String("address", "localhost", "Address to bind to")
+	uriPath := flag.String("uri-path", "<RANDOM>", "URI path (or UUID) for WebSocket connection")
+	ssl := flag.Bool("ssl", false, "Enable SSL/TLS")
 	flag.Parse()
 
 	// inforeply is static but requires domain lookups, so we build it here once
@@ -19,8 +19,6 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-
-	sspiproxy.localSSPITest()
 	// Start the WebSocket server
-	wsnet.StartWebsocketServer(disableSecurity, address, port, uriPath, infoReply)
+	wsnet.StartWebsocketServer(ssl, address, port, uriPath, infoReply)
 }

@@ -1,4 +1,3 @@
-
 package wsnet
 
 import (
@@ -12,8 +11,6 @@ type WSPacket struct {
 	Token   [16]byte
 	Data    interface{}
 }
-
-
 
 func serializeReply(message WSPacket, cmdType uint16, data []byte) WSPacket {
 	return WSPacket{Length: uint32(22 + len(data)), CmdType: cmdType, Token: message.Token, Data: data}
@@ -34,7 +31,6 @@ func serializeMessage(message WSPacket) ([]byte, error) {
 		return nil, fmt.Errorf("Unknown data type")
 	}
 
-
 	buf := make([]byte, 22+datalen)
 	binary.BigEndian.PutUint32(buf[0:4], message.Length)
 	binary.BigEndian.PutUint16(buf[4:6], message.CmdType)
@@ -43,7 +39,6 @@ func serializeMessage(message WSPacket) ([]byte, error) {
 
 	return buf, nil
 }
-
 
 func parseMessage(data []byte) (WSPacket, error) {
 	var message WSPacket
@@ -59,7 +54,7 @@ func parseMessage(data []byte) (WSPacket, error) {
 	if len(data) < 22 {
 		return message, fmt.Errorf("Message data too short")
 	}
-	
+
 	switch message.CmdType {
 	case 0:
 		{
@@ -124,12 +119,12 @@ func parseMessage(data []byte) (WSPacket, error) {
 			message.Data = data[22:]
 			return message, nil
 			//return message, fmt.Errorf("Unknown command type: %d", message.CmdType)
-		
+
 		}
-	} 		
+	}
 }
 
-//TODO: check this
+// TODO: check this
 func ReadString(data []byte, offset int) (string, int) {
 	length := int(binary.BigEndian.Uint32(data[offset : offset+4]))
 	return string(data[offset+4 : offset+4+length]), offset + 4 + length
@@ -155,15 +150,14 @@ func CreateContinuePacket(token [16]byte) WSPacket {
 }
 
 func CreateSDPacket(token [16]byte, data []byte) WSPacket {
-	return WSPacket{Length: (uint32)(22 + len(data)) , CmdType: 7, Token: token, Data: data}
+	return WSPacket{Length: (uint32)(22 + len(data)), CmdType: 7, Token: token, Data: data}
 }
 
 func CreateGetInfoPacket(token [16]byte, infoReply *WSNGetInfoReply) WSPacket {
 	infodata, err := infoReply.ToData()
 	if err != nil {
 		fmt.Printf("Failed to serialize getinfo reply: %v", err)
-		return WSPacket{Length: 22, CmdType: 8, Token: token}
+		return WSPacket{Length: 22, CmdType: 9, Token: token}
 	}
-	return WSPacket{Length: 22, CmdType: 8, Token: token, Data: infodata}
+	return WSPacket{Length: 22, CmdType: 9, Token: token, Data: infodata}
 }
-

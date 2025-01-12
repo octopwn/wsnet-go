@@ -1,101 +1,69 @@
 package wsnet
 
 import (
-	"fmt"
 	"bytes"
 	"encoding/binary"
-    "os"
-    "os/user"
-    "runtime"
-    "strings"
+	"fmt"
+	"strings"
 	"unicode/utf16"
-	"strconv"
 )
 
 type WSNGetInfoReply struct {
-	pid string
-	username  string // utf-16-le
-	domain  string // utf-16-le
-	logonserver  string // utf-16-le
-	cpuarch  string
-	hostname  string // utf-16-le
-	usersid  string
-	os  string
-	logonserverip  string
+	pid           string
+	username      string // utf-16-le
+	domain        string // utf-16-le
+	logonserver   string // utf-16-le
+	cpuarch       string
+	hostname      string // utf-16-le
+	usersid       string
+	os            string
+	logonserverip string
 }
 
 func normalizePlatform(goos string) string {
-    switch goos {
-    case "windows":
-        return "WINDOWS"
-    case "linux":
-        return "LINUX"
-    case "darwin":
-        return "MACOS"
-    default:
-        // fallback for other GOOS values (freebsd, netbsd, etc.)
-        return strings.ToUpper(goos)
-    }
-}
-
-func BuildGetInfoReply() (*WSNGetInfoReply, error) {
-	info := &WSNGetInfoReply{
-        pid:    strconv.Itoa(os.Getpid()),
-        os: normalizePlatform(runtime.GOOS),
-    }
-
-	// Get the current user
-	user, err := user.Current()
-	if err != nil {
-		info.username = "unknown"
-	} else {
-		info.username = user.Username
+	switch goos {
+	case "windows":
+		return "WINDOWS"
+	case "linux":
+		return "LINUX"
+	case "darwin":
+		return "MACOS"
+	default:
+		// fallback for other GOOS values (freebsd, netbsd, etc.)
+		return strings.ToUpper(goos)
 	}
-	
-	// Get the hostname
-	hostname, err := os.Hostname()
-	if err != nil {
-		info.hostname = "unknown"
-	} else {
-		info.hostname = hostname
-	}
-
-	// CPU Architecture
-	info.cpuarch = "X64"
-
-	return info, nil
 }
 
 func NewWSNGetInfoReply(pid, username, domain, logonserver, cpuarch, hostname, usersid, os, logonserverip string) *WSNGetInfoReply {
 	return &WSNGetInfoReply{
-		pid: pid,
-		username: username,
-		domain: domain,
-		logonserver: logonserver,
-		cpuarch: cpuarch,
-		hostname: hostname,
-		usersid: usersid,
-		os: os,
+		pid:           pid,
+		username:      username,
+		domain:        domain,
+		logonserver:   logonserver,
+		cpuarch:       cpuarch,
+		hostname:      hostname,
+		usersid:       usersid,
+		os:            os,
 		logonserverip: logonserverip,
 	}
 }
 
 // encodeUTF16LE takes a Go string s and returns a UTF-16-LE-encoded []byte.
 func encodeUTF16LE(s string) []byte {
-    // Convert s into a slice of UTF-16 code units
-    u16 := utf16.Encode([]rune(s))
+	// Convert s into a slice of UTF-16 code units
+	u16 := utf16.Encode([]rune(s))
 
-    // Prepare a buffer to hold the UTF-16-LE bytes
-    buf := new(bytes.Buffer)
+	// Prepare a buffer to hold the UTF-16-LE bytes
+	buf := new(bytes.Buffer)
 
-    // For each code unit, write it as a little-endian uint16
-    for _, codeUnit := range u16 {
-        // We use binary.Write with binary.LittleEndian
-        // to write the 2 bytes of each UTF-16 code unit
-        _ = binary.Write(buf, binary.LittleEndian, codeUnit)
-    }
+	// For each code unit, write it as a little-endian uint16
+	for _, codeUnit := range u16 {
+		// We use binary.Write with binary.LittleEndian
+		// to write the 2 bytes of each UTF-16 code unit
+		_ = binary.Write(buf, binary.LittleEndian, codeUnit)
+	}
 
-    return buf.Bytes()
+	return buf.Bytes()
 }
 
 func (w *WSNGetInfoReply) ToData() ([]byte, error) {
@@ -110,20 +78,20 @@ func (w *WSNGetInfoReply) ToData() ([]byte, error) {
 	}
 
 	// Write the username
-	usernameLength := uint32(len(w.username))
 	usernameBytes := encodeUTF16LE(w.username)
+	usernameLength := uint32(len(usernameBytes))
 	binary.Write(buff, binary.BigEndian, usernameLength)
 	binary.Write(buff, binary.BigEndian, usernameBytes)
 
 	// Write the domain
-	domainLength := uint32(len(w.domain))
 	domainBytes := encodeUTF16LE(w.domain)
+	domainLength := uint32(len(domainBytes))
 	binary.Write(buff, binary.BigEndian, domainLength)
 	binary.Write(buff, binary.BigEndian, domainBytes)
 
 	// Write the logonserver
-	logonserverLength := uint32(len(w.logonserver))
 	logonserverBytes := encodeUTF16LE(w.logonserver)
+	logonserverLength := uint32(len(logonserverBytes))
 	binary.Write(buff, binary.BigEndian, logonserverLength)
 	binary.Write(buff, binary.BigEndian, logonserverBytes)
 
@@ -135,8 +103,8 @@ func (w *WSNGetInfoReply) ToData() ([]byte, error) {
 	}
 
 	// Write the hostname
-	hostnameLength := uint32(len(w.hostname))
 	hostnameBytes := encodeUTF16LE(w.hostname)
+	hostnameLength := uint32(len(hostnameBytes))
 	binary.Write(buff, binary.BigEndian, hostnameLength)
 	binary.Write(buff, binary.BigEndian, hostnameBytes)
 
@@ -163,9 +131,6 @@ func (w *WSNGetInfoReply) ToData() ([]byte, error) {
 
 	return buff.Bytes(), nil
 }
-
-
-
 
 type WSNErr struct {
 	Reason string

@@ -18,7 +18,7 @@ Upon starting the application, a WebSocket server is set up on `localhost` at po
 | UDP Client              | ✔       | ✔     | ✔   |
 | UDP Server              | ✘       | ✘     | ✘   |
 | Local File Browser      | ✔       | ✔     | ✔   |
-| Authentication Proxy    | ✘       | ✘     | ✘   |
+| Authentication Proxy    | ✔       | ✔     | ✔   |
 
 ## Getting Started
 ### Prerequisites
@@ -31,7 +31,10 @@ Clone the repository and navigate into the project directory:
 ```bash
 git clone https://github.com/yourusername/wsnet-proxy.git
 cd wsnet-proxy
-go build -o wsnet-proxy
+# for linux OS
+GOOS=linux GOARCH=amd64 go build -o wsnet-go
+# for windows OS (supports auth proxy)
+GOOS=windows GOARCH=amd64 go build -o wsnet-go.exe
 ```
 
 # Usage
@@ -53,8 +56,8 @@ The following command-line options are available:
 - **`-uri-path`**: Sets the URI path (or UUID) for the WebSocket connection. This can be used to create specific endpoints for WebSocket communication.
   - Example: `-uri-path /ws/connection` will make the WebSocket server available at `ws://localhost:8700/ws/connection`.
   
-- **`-disable-security`**: Disables TLS security for the WebSocket connection. This is useful for development or in environments where security is managed differently.
-  - Example: `-disable-security` will start the WebSocket server without TLS encryption.
+- **`-ssl`**: Enables TLS security for the WebSocket connection.
+  - Example: `-ssl` will start the WebSocket server with TLS encryption.
 
 # Limitations
 The application currently only supports the TCP client functionality. Other features such as TCP server, UDP client/server, local file browsing, and authentication proxy are not yet implemented.
@@ -63,8 +66,6 @@ The application currently only supports the TCP client functionality. Other feat
 
 - [ ] **TCP Server Support**: Enable the application to function as a TCP server, allowing it to accept incoming TCP connections.
 - [ ] **UDP Server**: Add support for UDP server functionalities to handle datagram-based communication.
-- [ ] **Authentication Proxy**: Introduce an authentication proxy feature to handle user authentication for network services.
-- [ ] **Cross-Platform Improvements**: Enhance the compatibility and performance of the application across all supported platforms.
 
 
 # Contributing
