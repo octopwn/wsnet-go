@@ -1,4 +1,4 @@
-package wsnet
+package sspiproxy
 
 //go:build windows
 // +build windows
