@@ -1,3 +1,7 @@
+// websocket.go
+//go:build !tailscale
+// +build !tailscale
+
 package wsnet
 
 import (

@@ -35,12 +35,22 @@ cd wsnet-proxy
 GOOS=linux GOARCH=amd64 go build -o wsnet-go
 # for windows OS (supports auth proxy)
 GOOS=windows GOARCH=amd64 go build -o wsnet-go.exe
+# for tailscale version - linux -
+GOOS=linux GOARCH=amd64 go build -tags tailscale -o wsnet_tailscale
+# for tailscale version - windows -
+GOOS=windows GOARCH=amd64 go build -tags tailscale -o wsnet_tailscale.exe
 ```
 
 # Usage
 Run the proxy server with the following command:
 ```bash
-./wsnet-proxy [options]
+./wsnet-go [options]
+```
+
+## Tailscale
+First time running you must provide a TS_AUTH_KEY as an env variable. Subsequent runs do not need the key.
+```bash
+TS_AUTH_KEY=tskey-auth-xx... ./wsnet_tailscale
 ```
 
 ### Command-Line Options

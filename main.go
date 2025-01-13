@@ -1,3 +1,7 @@
+// main.go
+//go:build !tailscale
+// +build !tailscale
+
 package main
 
 import (
@@ -10,7 +14,7 @@ func main() {
 	port := flag.Int("port", 8700, "Port to listen on")
 	address := flag.String("address", "localhost", "Address to bind to")
 	uriPath := flag.String("uri-path", "<RANDOM>", "URI path (or UUID) for WebSocket connection")
-	ssl := flag.Bool("ssl", false, "Enable SSL/TLS")
+	ssl := flag.Bool("ssl", true, "Enable SSL/TLS")
 	flag.Parse()
 
 	// inforeply is static but requires domain lookups, so we build it here once
