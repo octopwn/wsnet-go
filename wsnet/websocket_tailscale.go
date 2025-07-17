@@ -23,7 +23,7 @@ var upgrader = websocket.Upgrader{
 	WriteBufferSize: 16384,
 }
 
-func StartTailscaleWebsocketServer(address *string, hostname *string, uriPath *string, infoReply *WSNGetInfoReply) {
+func StartTailscaleWebsocketServer(address *string, hostname *string, uriPath *string, authKey *string, infoReply *WSNGetInfoReply) {
 	var path string
 	if *uriPath != "<RANDOM>" {
 		path = *uriPath
@@ -39,14 +39,21 @@ func StartTailscaleWebsocketServer(address *string, hostname *string, uriPath *s
 	http.HandleFunc(path, WsHandler(infoReply))
 
 	go func() {
-		authKey := os.Getenv("TS_AUTH_KEY")
-		if authKey == "" {
-			fmt.Println("TS_AUTH_KEY not set. This is only an isue on the first run.")
+		// Determine auth key: CLI flag overrides environment variable
+		tsAuthKey := ""
+		if authKey != nil && *authKey != "" {
+			tsAuthKey = *authKey
+		} else {
+			tsAuthKey = os.Getenv("TS_AUTH_KEY")
+		}
+
+		if tsAuthKey == "" {
+			fmt.Println("Tailscale auth key not provided. Provide it with -auth-key flag or TS_AUTH_KEY env variable. This is only required on the first run.")
 		}
 
 		s := &tsnet.Server{
 			Hostname:  *hostname,
-			AuthKey:   authKey, //os.Getenv("TS_AUTH_KEY"), // Ensure AuthKey is set
+			AuthKey:   tsAuthKey,
 			Ephemeral: true,
 		}
 		defer s.Close()

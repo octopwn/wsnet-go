@@ -25,7 +25,14 @@ jobs:
     - name: Build binaries
       run: |
         mkdir -p dist
+        # Build the standard binary (no special build tags)
         GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -o dist/wsnet_go_${{ matrix.goos }}_${{ matrix.goarch }}
+
+        # Build the Tailscale **server** variant (tag: tailscale)
+        GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -tags tailscale -o dist/wsnet_go_tailscale_${{ matrix.goos }}_${{ matrix.goarch }}
+
+        # Build the Tailscale **client** variant (tags: tailscale tailscaleclient)
+        GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -tags "tailscale tailscaleclient" -o dist/wsnet_go_tailscale_client_${{ matrix.goos }}_${{ matrix.goarch }}
 
     - name: Upload binaries
       uses: actions/upload-artifact@v3
