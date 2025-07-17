@@ -36,7 +36,7 @@ jobs:
         GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -tags "tailscale tailscaleclient" -o dist/wsnet_go_tailscale_client_${{ matrix.goos }}_${{ matrix.goarch }}
 
     - name: Upload binaries as artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: wsnet_go_${{ matrix.goos }}_${{ matrix.goarch }}
         path: dist/
