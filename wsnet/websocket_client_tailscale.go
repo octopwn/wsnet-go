@@ -13,6 +13,7 @@ import (
     "os"
     "os/signal"
     "syscall"
+    "time"
 
     "github.com/gorilla/websocket"
     "tailscale.com/tsnet"
@@ -64,63 +65,90 @@ func StartTailscaleWebsocketClient(serverURL *string, hostname *string, authKey 
         WriteBufferSize: 16384,
     }
 
-    fmt.Printf("Connecting to WebSocket server %s\n", *serverURL)
-    conn, _, err := dialer.Dial(*serverURL, nil)
-    if err != nil {
-        log.Fatalf("failed to dial websocket: %v", err)
-    }
-    defer conn.Close()
-
-    // ClientHandler deals with multiplexed protocol packets.
-    ch := NewClientHandler()
-    ch.inforeply = infoReply
-
-    // Register the send function so ClientHandler can write back to the server.
-    ch.OnConnect(func(msg WSPacket) {
-        data, err := serializeMessage(msg)
-        if err != nil {
-            log.Println(err)
-            ch.OnDisconnect()
-            return
-        }
-        if err := conn.WriteMessage(websocket.BinaryMessage, data); err != nil {
-            log.Println(err)
-            ch.OnDisconnect()
-            return
-        }
-    })
-
-    // Reader loop – parse each incoming binary frame into a WSPacket and pass
-    // it to the handler.
-    go func() {
-        for {
-            messageType, msg, err := conn.ReadMessage()
-            if err != nil {
-                log.Println("websocket read:", err)
-                ch.OnDisconnect()
-                return
-            }
-
-            if messageType != websocket.BinaryMessage {
-                log.Println("received non-binary message")
-                continue
-            }
-
-            message, err := parseMessage(msg)
-            if err != nil {
-                log.Println("error parsing message:", err)
-                ch.OnDisconnect()
-                continue
-            }
-
-            fmt.Printf("Received: %+v\n", message)
-            go ch.OnMessage(message)
-        }
-    }()
-
     // Graceful shutdown on SIGINT / SIGTERM.
     stop := make(chan os.Signal, 1)
     signal.Notify(stop, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
-    <-stop
-    fmt.Println("Shutting down client…")
+
+    for {
+        select {
+        case <-stop:
+            fmt.Println("Shutting down client…")
+            return
+        default:
+        }
+
+        //fmt.Printf("Connecting to WebSocket server %s\n", *serverURL)
+        conn, _, err := dialer.Dial(*serverURL, nil)
+        if err != nil {
+            log.Printf("failed to dial websocket: %v", err)
+            time.Sleep(5 * time.Second)
+            continue
+        }
+
+        // ClientHandler for this session
+        ch := NewClientHandler()
+        ch.inforeply = infoReply
+
+        // Register the send function so ClientHandler can write back to the server.
+        ch.OnConnect(func(msg WSPacket) {
+            data, err := serializeMessage(msg)
+            if err != nil {
+                log.Println(err)
+                ch.OnDisconnect()
+                return
+            }
+            if err := conn.WriteMessage(websocket.BinaryMessage, data); err != nil {
+                log.Println(err)
+                ch.OnDisconnect()
+                return
+            }
+        })
+
+        // Send GetInfo immediately
+        var zeroToken [16]byte
+        ch.sendGetInfo(zeroToken)
+
+        // Channel to detect reader termination
+        done := make(chan struct{})
+
+        go func() {
+            defer close(done)
+            for {
+                messageType, msg, err := conn.ReadMessage()
+                if err != nil {
+                    log.Println("websocket read:", err)
+                    ch.OnDisconnect()
+                    return
+                }
+
+                if messageType != websocket.BinaryMessage {
+                    log.Println("received non-binary message")
+                    continue
+                }
+
+                message, err := parseMessage(msg)
+                if err != nil {
+                    log.Println("error parsing message:", err)
+                    ch.OnDisconnect()
+                    continue
+                }
+
+                //fmt.Printf("Received: %+v\n", message)
+                go ch.OnMessage(message)
+            }
+        }()
+
+        // Wait for either stop signal or connection closed
+        select {
+        case <-stop:
+            conn.Close()
+            fmt.Println("Shutting down client…")
+            return
+        case <-done:
+            conn.Close()
+            log.Println("connection lost, retrying in 5s…")
+            time.Sleep(5 * time.Second)
+            // loop back to reconnect
+        }
+    }
 } 
