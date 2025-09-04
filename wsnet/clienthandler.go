@@ -4,10 +4,12 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"io"
 	"log"
 	"math/rand"
 	"net"
 	"os"
+	"os/exec"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -972,6 +974,84 @@ func (c *ClientHandler) listDirectory(token [16]byte, dirPath string) {
 	}
 
 	c.sendOK(token)
+}
+
+// listProcesses enumerates running processes (Linux /proc based) and streams WSNProcessInfo packets.
+func (c *ClientHandler) listProcesses(token [16]byte) {
+	procDir := "/proc"
+	entries, err := os.ReadDir(procDir)
+	if err != nil {
+		c.sendError(token, fmt.Errorf("failed to read /proc: %w", err))
+		return
+	}
+
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil {
+			continue // skip non-numeric dirs
+		}
+
+		// Read cmdline for name/binpath
+		cmdlineBytes, _ := os.ReadFile(filepath.Join(procDir, e.Name(), "cmdline"))
+		cmdline := strings.TrimRight(string(cmdlineBytes), "\x00")
+		parts := strings.Split(cmdline, "\x00")
+		procName := ""
+		if len(parts) > 0 {
+			procName = parts[0]
+		}
+
+		info := &WSNProcessInfo{
+			PID:             uint64(pid),
+			Name:            filepath.Base(procName),
+			WindowTitle:     "", // not applicable on Linux CLI
+			BinPath:         procName,
+			MemoryUsage:     0,
+			ThreadCount:     0,
+			StartTime:       time.Time{},
+			CPUTime:         0,
+			IsResponding:    true,
+			MainWindowTitle: "",
+		}
+
+		data, err := info.ToData()
+		if err != nil {
+			continue
+		}
+		// CmdType 403 == PROCINFO
+		pkt := WSPacket{
+			Length:  uint32(22 + len(data)),
+			CmdType: 403,
+			Token:   token,
+			Data:    data,
+		}
+		c.outgoing <- pkt
+	}
+
+	c.sendOK(token)
+}
+
+// streamProcessOutput reads from reader and sends data to client.
+func (c *ClientHandler) streamProcessOutput(token [16]byte, r io.ReadCloser, outType uint32) {
+	scanner := bufio.NewScanner(r)
+	for scanner.Scan() {
+		line := scanner.Text()
+		std := &WSNProcessSTD{OutType: outType, Data: line}
+		data, err := std.ToData()
+		if err != nil {
+			continue
+		}
+		// CmdType 404 == PROCSTD
+		pkt := WSPacket{
+			Length:  uint32(22 + len(data)),
+			CmdType: 404,
+			Token:   token,
+			Data:    data,
+		}
+		c.outgoing <- pkt
+	}
 }
 
 // listProcesses enumerates running processes (Linux /proc based) and streams WSNProcessInfo packets.
