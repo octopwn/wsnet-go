@@ -139,7 +139,7 @@ func WsHandler(infoReply *WSNGetInfoReply) http.HandlerFunc {
 				continue
 			}
 
-			fmt.Printf("Received: %+v\n", message)
+			//fmt.Printf("Received: %+v\n", message)
 			go ch.OnMessage(message)
 		}
 	}

@@ -59,6 +59,14 @@ func parseMessage(data []byte) (WSPacket, error) {
 	case 0:
 		{
 			//OK
+			if len(data) > 22 {
+				if len(data) >= 26 { // 22 + 4 bytes for length
+					str, _ := ReadString(data, 22)
+					message.Data = str
+				} else {
+					message.Data = data[22:] // fallback for raw bytes
+				}
+			}
 			return message, nil
 		}
 	case 1:
@@ -86,6 +94,14 @@ func parseMessage(data []byte) (WSPacket, error) {
 	case 4:
 		{
 			// Continue
+			if len(data) > 22 {
+				if len(data) >= 26 { // 22 + 4 bytes for length
+					str, _ := ReadString(data, 22)
+					message.Data = str
+				} else {
+					message.Data = data[22:] // fallback for raw bytes
+				}
+			}
 			return message, nil
 		}
 	case 5:
@@ -137,16 +153,26 @@ func BoolToByte(b bool) byte {
 	return 0
 }
 
-func CreateOKPacket(token [16]byte) WSPacket {
-	return WSPacket{Length: 22, CmdType: 0, Token: token}
+func CreateOKPacket(token [16]byte, data string) WSPacket {
+	dataBytes := []byte(data)
+	// Create buffer with 4-byte length prefix + string data
+	buffer := make([]byte, 4+len(dataBytes))
+	binary.BigEndian.PutUint32(buffer[0:4], uint32(len(dataBytes)))
+	copy(buffer[4:], dataBytes)
+	return WSPacket{Length: uint32(22 + len(buffer)), CmdType: 0, Token: token, Data: buffer}
 }
 
 func CreateErrorPacket(token [16]byte, reason string, extra string) WSPacket {
 	return WSPacket{Length: 0, CmdType: 1, Token: token, Data: NewWSNErr(reason, extra)}
 }
 
-func CreateContinuePacket(token [16]byte) WSPacket {
-	return WSPacket{Length: 22, CmdType: 4, Token: token}
+func CreateContinuePacket(token [16]byte, data string) WSPacket {
+	dataBytes := []byte(data)
+	// Create buffer with 4-byte length prefix + string data
+	buffer := make([]byte, 4+len(dataBytes))
+	binary.BigEndian.PutUint32(buffer[0:4], uint32(len(dataBytes)))
+	copy(buffer[4:], dataBytes)
+	return WSPacket{Length: uint32(22 + len(buffer)), CmdType: 4, Token: token, Data: buffer}
 }
 
 func CreateSDPacket(token [16]byte, data []byte) WSPacket {

@@ -3,10 +3,12 @@ package wsnet
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"log"
 	"math/rand"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -609,6 +611,78 @@ func (c *ClientHandler) OnMessage(message WSPacket) {
 			}
 			c.outgoing <- dataPacket
 		}
+	case 400: // Process list request
+		{
+			// No payload to parse
+			go c.listProcesses(message.Token)
+		}
+	case 401: // Process start request
+		{
+			req, err := WSNProcessStartFromBytes(message.Data.([]byte))
+			if err != nil {
+				c.sendError(message.Token, err)
+				return
+			}
+
+			args := []string{}
+			if len(strings.TrimSpace(req.Arguments)) > 0 {
+				args = strings.Fields(req.Arguments)
+			}
+
+			cmd := exec.Command(req.Command, args...)
+
+			stdoutPipe, err := cmd.StdoutPipe()
+			if err != nil {
+				c.sendError(message.Token, fmt.Errorf("failed to get stdout pipe: %w", err))
+				return
+			}
+			stderrPipe, err := cmd.StderrPipe()
+			if err != nil {
+				c.sendError(message.Token, fmt.Errorf("failed to get stderr pipe: %w", err))
+				return
+			}
+
+			if err := cmd.Start(); err != nil {
+				c.sendError(message.Token, fmt.Errorf("failed to start process: %w", err))
+				return
+			}
+
+			// Send continue to indicate process has started
+			pidStr := fmt.Sprintf("%d", cmd.Process.Pid)
+			c.sendContinue(message.Token, pidStr)
+
+			// Stream stdout / stderr
+			go c.streamProcessOutput(message.Token, stdoutPipe, 0)
+			go c.streamProcessOutput(message.Token, stderrPipe, 1)
+
+			// Wait for process completion in background
+			go func() {
+				err := cmd.Wait()
+				if err != nil {
+					c.sendError(message.Token, fmt.Errorf("process exited with error: %w", err))
+				} else {
+					c.sendOK(message.Token)
+				}
+			}()
+		}
+	case 402: // Process kill request
+		{
+			req, err := WSNProcessKillFromBytes(message.Data.([]byte))
+			if err != nil {
+				c.sendError(message.Token, err)
+				return
+			}
+			proc, err := os.FindProcess(int(req.PID))
+			if err != nil {
+				c.sendError(message.Token, fmt.Errorf("failed to find process: %w", err))
+				return
+			}
+			if err := proc.Kill(); err != nil {
+				c.sendError(message.Token, fmt.Errorf("failed to kill process: %w", err))
+				return
+			}
+			c.sendOK(message.Token)
+		}
 	}
 }
 
@@ -629,8 +703,12 @@ func (c *ClientHandler) sendResolvReply(token [16]byte, data []byte) {
 	c.outgoing <- dataPacket
 }
 
-func (c *ClientHandler) sendOK(token [16]byte) {
-	okPacket := CreateOKPacket(token)
+func (c *ClientHandler) sendOK(token [16]byte, data ...string) {
+	dataStr := ""
+	if len(data) > 0 {
+		dataStr = data[0]
+	}
+	okPacket := CreateOKPacket(token, dataStr)
 	c.outgoing <- okPacket
 }
 
@@ -669,8 +747,12 @@ func (c *ClientHandler) sendServerSocketData(token [16]byte, data []byte) {
 	c.outgoing <- dataPacket
 }
 
-func (c *ClientHandler) sendContinue(token [16]byte) {
-	continuePacket := CreateContinuePacket(token)
+func (c *ClientHandler) sendContinue(token [16]byte, data ...string) {
+	dataStr := ""
+	if len(data) > 0 {
+		dataStr = data[0]
+	}
+	continuePacket := CreateContinuePacket(token, dataStr)
 	c.outgoing <- continuePacket
 }
 
@@ -890,4 +972,82 @@ func (c *ClientHandler) listDirectory(token [16]byte, dirPath string) {
 	}
 
 	c.sendOK(token)
+}
+
+// listProcesses enumerates running processes (Linux /proc based) and streams WSNProcessInfo packets.
+func (c *ClientHandler) listProcesses(token [16]byte) {
+	procDir := "/proc"
+	entries, err := os.ReadDir(procDir)
+	if err != nil {
+		c.sendError(token, fmt.Errorf("failed to read /proc: %w", err))
+		return
+	}
+
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil {
+			continue // skip non-numeric dirs
+		}
+
+		// Read cmdline for name/binpath
+		cmdlineBytes, _ := os.ReadFile(filepath.Join(procDir, e.Name(), "cmdline"))
+		cmdline := strings.TrimRight(string(cmdlineBytes), "\x00")
+		parts := strings.Split(cmdline, "\x00")
+		procName := ""
+		if len(parts) > 0 {
+			procName = parts[0]
+		}
+
+		info := &WSNProcessInfo{
+			PID:             uint64(pid),
+			Name:            filepath.Base(procName),
+			WindowTitle:     "", // not applicable on Linux CLI
+			BinPath:         procName,
+			MemoryUsage:     0,
+			ThreadCount:     0,
+			StartTime:       time.Time{},
+			CPUTime:         0,
+			IsResponding:    true,
+			MainWindowTitle: "",
+		}
+
+		data, err := info.ToData()
+		if err != nil {
+			continue
+		}
+		// CmdType 403 == PROCINFO
+		pkt := WSPacket{
+			Length:  uint32(22 + len(data)),
+			CmdType: 403,
+			Token:   token,
+			Data:    data,
+		}
+		c.outgoing <- pkt
+	}
+
+	c.sendOK(token)
+}
+
+// streamProcessOutput reads from reader and sends data to client.
+func (c *ClientHandler) streamProcessOutput(token [16]byte, r io.ReadCloser, outType uint32) {
+	scanner := bufio.NewScanner(r)
+	for scanner.Scan() {
+		line := scanner.Text()
+		std := &WSNProcessSTD{OutType: outType, Data: line}
+		data, err := std.ToData()
+		if err != nil {
+			continue
+		}
+		// CmdType 404 == PROCSTD
+		pkt := WSPacket{
+			Length:  uint32(22 + len(data)),
+			CmdType: 404,
+			Token:   token,
+			Data:    data,
+		}
+		c.outgoing <- pkt
+	}
 }
