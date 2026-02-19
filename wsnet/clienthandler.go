@@ -4,19 +4,23 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"io"
 	"log"
 	"math/rand"
 	"net"
 	"os"
-	"os/exec"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"encoding/binary"
 )
+
+type ProcessHandle struct {
+	cmd    *exec.Cmd
+	stdin  io.WriteCloser
+}
 
 type ClientHandler struct {
 	send              func(WSPacket)
@@ -29,7 +33,9 @@ type ClientHandler struct {
 	serverSocketsMu   sync.Mutex
 	authHandlers      map[string]*SSPISession
 	authHandlersMu    sync.Mutex
-	outgoing          chan WSPacket // Channel for outgoing messages
+	processes         map[string]*ProcessHandle // Map token to process handle
+	processesMu       sync.Mutex               // Mutex for process map
+	outgoing          chan WSPacket            // Channel for outgoing messages
 	inforeply         *WSNGetInfoReply
 }
 
@@ -45,6 +51,8 @@ func NewClientHandler() *ClientHandler {
 		fileHandlesMu:     sync.Mutex{},
 		authHandlers:      make(map[string]*SSPISession),
 		authHandlersMu:    sync.Mutex{},
+		processes:         make(map[string]*ProcessHandle),
+		processesMu:       sync.Mutex{},
 		outgoing:          make(chan WSPacket, 1024), // Initialize the outgoing channel
 	}
 }
@@ -128,8 +136,35 @@ func (ch *ClientHandler) AddAuthHandler(key string, handler *SSPISession) {
 	ch.authHandlers[key] = handler
 }
 
+func (ch *ClientHandler) AddProcess(key string, cmd *exec.Cmd, stdin io.WriteCloser) {
+	ch.processesMu.Lock()
+	defer ch.processesMu.Unlock()
+	ch.processes[key] = &ProcessHandle{
+		cmd:   cmd,
+		stdin: stdin,
+	}
+}
+
+func (ch *ClientHandler) RemoveProcess(key string) {
+	ch.processesMu.Lock()
+	defer ch.processesMu.Unlock()
+	if handle, ok := ch.processes[key]; ok {
+		if handle.stdin != nil {
+			handle.stdin.Close()
+		}
+		delete(ch.processes, key)
+	}
+}
+
+func (ch *ClientHandler) GetProcess(key string) (*ProcessHandle, bool) {
+	ch.processesMu.Lock()
+	defer ch.processesMu.Unlock()
+	handle, ok := ch.processes[key]
+	return handle, ok
+}
+
 func (c *ClientHandler) OnMessage(message WSPacket) {
-	//fmt.Printf("Received: %+v\n", message)
+	fmt.Printf("Received: %+v\n", message)
 	switch message.CmdType {
 	case 0:
 		{
@@ -626,12 +661,38 @@ func (c *ClientHandler) OnMessage(message WSPacket) {
 				return
 			}
 
-			args := []string{}
-			if len(strings.TrimSpace(req.Arguments)) > 0 {
+			// Debug: Print what we received
+			fmt.Printf("DEBUG: Received command: '%s', arguments: '%s'\n", req.Command, req.Arguments)
+
+			// Parse command line - handle case where full command is in req.Command
+			var command string
+			var args []string
+			
+			// If Arguments field is empty or "None", try to parse Command as full command line
+			argsTrimmed := strings.TrimSpace(req.Arguments)
+			if len(argsTrimmed) == 0 || argsTrimmed == "None" {
+				fields := strings.Fields(strings.TrimSpace(req.Command))
+				if len(fields) == 0 {
+					c.sendError(message.Token, fmt.Errorf("empty command"))
+					return
+				}
+				command = fields[0]
+				if len(fields) > 1 {
+					args = fields[1:]
+				}
+			} else {
+				// Normal case: separate command and arguments
+				command = strings.TrimSpace(req.Command)
 				args = strings.Fields(req.Arguments)
 			}
 
-			cmd := exec.Command(req.Command, args...)
+			// Debug: Print parsed command and args
+			fmt.Printf("DEBUG: Parsed command: '%s', args: %v\n", command, args)
+
+			cmd := exec.Command(command, args...)
+			
+			// Configure process attributes for the current platform
+			configureProcAttr(cmd)
 
 			stdoutPipe, err := cmd.StdoutPipe()
 			if err != nil {
@@ -643,11 +704,20 @@ func (c *ClientHandler) OnMessage(message WSPacket) {
 				c.sendError(message.Token, fmt.Errorf("failed to get stderr pipe: %w", err))
 				return
 			}
+			stdinPipe, err := cmd.StdinPipe()
+			if err != nil {
+				c.sendError(message.Token, fmt.Errorf("failed to get stdin pipe: %w", err))
+				return
+			}
 
 			if err := cmd.Start(); err != nil {
 				c.sendError(message.Token, fmt.Errorf("failed to start process: %w", err))
 				return
 			}
+
+			// Store process in lookup dictionary
+			tokenStr := fmt.Sprintf("%x", message.Token)
+			c.AddProcess(tokenStr, cmd, stdinPipe)
 
 			// Send continue to indicate process has started
 			pidStr := fmt.Sprintf("%d", cmd.Process.Pid)
@@ -660,10 +730,16 @@ func (c *ClientHandler) OnMessage(message WSPacket) {
 			// Wait for process completion in background
 			go func() {
 				err := cmd.Wait()
+				exitCode := cmd.ProcessState.ExitCode()
+				exitCodeStr := fmt.Sprintf("%d", exitCode)
+				
+				// Clean up process from dictionary
+				c.RemoveProcess(tokenStr)
+				
 				if err != nil {
-					c.sendError(message.Token, fmt.Errorf("process exited with error: %w", err))
+					c.sendErrorString(message.Token, exitCodeStr)
 				} else {
-					c.sendOK(message.Token)
+					c.sendOK(message.Token, exitCodeStr)
 				}
 			}()
 		}
@@ -684,6 +760,35 @@ func (c *ClientHandler) OnMessage(message WSPacket) {
 				return
 			}
 			c.sendOK(message.Token)
+		}
+	case 404: // Process std request
+		{
+			fmt.Println("Process STD message received")
+			req, err := WSNProcessSTDFromBytes(message.Data.([]byte))
+			if err != nil {
+				c.sendError(message.Token, err)
+				return
+			}
+			fmt.Println("Request:", req)
+			// Get the process for the token
+			tokenStr := fmt.Sprintf("%x", message.Token)
+			processHandle, ok := c.GetProcess(tokenStr)
+			if !ok {
+				c.sendError(message.Token, fmt.Errorf("process not found for token"))
+				return
+			}
+			fmt.Println("Process handle:", processHandle)
+			// Write data to process stdin
+			if processHandle.stdin != nil {
+				_, err := processHandle.stdin.Write([]byte(req.Data))
+				if err != nil {
+					c.sendError(message.Token, fmt.Errorf("failed to write to process stdin: %w", err))
+					return
+				}
+				//c.sendOK(message.Token)
+			} else {
+				c.sendError(message.Token, fmt.Errorf("process stdin not available"))
+			}
 		}
 	}
 }
@@ -718,11 +823,33 @@ func (c *ClientHandler) sendError(token [16]byte, err error) {
 	//fmt.Println("Error:", err)
 	// Create an error packet
 	byteErr := []byte(err.Error())
+	// create buffer with 4-byte length prefix + string data
+	buffer := make([]byte, 4+len(byteErr))
+	binary.BigEndian.PutUint32(buffer[0:4], uint32(len(byteErr)))
+	copy(buffer[4:], byteErr)
 	errorPacket := WSPacket{
-		Length:  (uint32)(22 + len(byteErr)),
+		Length:  (uint32)(22 + len(buffer)),
 		CmdType: 1,
 		Token:   token,
-		Data:    byteErr,
+		Data:    buffer,
+	}
+
+	c.outgoing <- errorPacket
+}
+
+func (c *ClientHandler) sendErrorString(token [16]byte, err string) {
+	//fmt.Println("Error:", err)
+	// Create an error packet
+	byteErr := []byte(err)
+	// create buffer with 4-byte length prefix + string data
+	buffer := make([]byte, 4+len(byteErr))
+	binary.BigEndian.PutUint32(buffer[0:4], uint32(len(byteErr)))
+	copy(buffer[4:], byteErr)
+	errorPacket := WSPacket{
+		Length:  (uint32)(22 + len(buffer)),
+		CmdType: 1,
+		Token:   token,
+		Data:    buffer,
 	}
 
 	c.outgoing <- errorPacket
@@ -976,83 +1103,6 @@ func (c *ClientHandler) listDirectory(token [16]byte, dirPath string) {
 	c.sendOK(token)
 }
 
-// listProcesses enumerates running processes (Linux /proc based) and streams WSNProcessInfo packets.
-func (c *ClientHandler) listProcesses(token [16]byte) {
-	procDir := "/proc"
-	entries, err := os.ReadDir(procDir)
-	if err != nil {
-		c.sendError(token, fmt.Errorf("failed to read /proc: %w", err))
-		return
-	}
-
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		pid, err := strconv.Atoi(e.Name())
-		if err != nil {
-			continue // skip non-numeric dirs
-		}
-
-		// Read cmdline for name/binpath
-		cmdlineBytes, _ := os.ReadFile(filepath.Join(procDir, e.Name(), "cmdline"))
-		cmdline := strings.TrimRight(string(cmdlineBytes), "\x00")
-		parts := strings.Split(cmdline, "\x00")
-		procName := ""
-		if len(parts) > 0 {
-			procName = parts[0]
-		}
-
-		info := &WSNProcessInfo{
-			PID:             uint64(pid),
-			Name:            filepath.Base(procName),
-			WindowTitle:     "", // not applicable on Linux CLI
-			BinPath:         procName,
-			MemoryUsage:     0,
-			ThreadCount:     0,
-			StartTime:       time.Time{},
-			CPUTime:         0,
-			IsResponding:    true,
-			MainWindowTitle: "",
-		}
-
-		data, err := info.ToData()
-		if err != nil {
-			continue
-		}
-		// CmdType 403 == PROCINFO
-		pkt := WSPacket{
-			Length:  uint32(22 + len(data)),
-			CmdType: 403,
-			Token:   token,
-			Data:    data,
-		}
-		c.outgoing <- pkt
-	}
-
-	c.sendOK(token)
-}
-
-// streamProcessOutput reads from reader and sends data to client.
-func (c *ClientHandler) streamProcessOutput(token [16]byte, r io.ReadCloser, outType uint32) {
-	scanner := bufio.NewScanner(r)
-	for scanner.Scan() {
-		line := scanner.Text()
-		std := &WSNProcessSTD{OutType: outType, Data: line}
-		data, err := std.ToData()
-		if err != nil {
-			continue
-		}
-		// CmdType 404 == PROCSTD
-		pkt := WSPacket{
-			Length:  uint32(22 + len(data)),
-			CmdType: 404,
-			Token:   token,
-			Data:    data,
-		}
-		c.outgoing <- pkt
-	}
-}
 
 // listProcesses enumerates running processes (Linux /proc based) and streams WSNProcessInfo packets.
 func (c *ClientHandler) listProcesses(token [16]byte) {
