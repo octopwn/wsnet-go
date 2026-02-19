@@ -50,3 +50,12 @@ jobs:
         npx wrangler r2 object put "octopwn-core-staging/wsnet.exe" --file="dist/wsnet_go_windows_amd64" --remote
         npx wrangler r2 object put "octopwn-core-staging/wsnet_tailscale.exe" --file="dist/wsnet_go_tailscale_windows_amd64" --remote
         npx wrangler r2 object put "octopwn-core-staging/wsnet_Readme.md" --file="README.md" --remote
+
+    - name: Upload wsnet-go source zip to R2 (staging)
+      if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
+      env:
+        CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      run: |
+        zip -r wsnet_golang.zip . -x ".git/*" "dist/*"
+        npx wrangler r2 object put "octopwn-core-staging/wsnet/wsnet_golang.zip" --file="wsnet_golang.zip" --remote
