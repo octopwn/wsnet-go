@@ -3,6 +3,7 @@ package wsnet
 import (
 	"encoding/binary"
 	"fmt"
+	"log"
 )
 
 type WSPacket struct {
@@ -74,7 +75,7 @@ func parseMessage(data []byte) (WSPacket, error) {
 			//error
 			wsnErrParsed, err := WSNErrFromBytes(data[22:])
 			if err != nil {
-				fmt.Println("Error:", err)
+				log.Println("Error:", err)
 				return message, err
 			}
 			message.Data = wsnErrParsed
@@ -108,7 +109,7 @@ func parseMessage(data []byte) (WSPacket, error) {
 		{
 			wsnConnectParsed, err := WSNConnectFromBytes(data[22:])
 			if err != nil {
-				fmt.Println("Error:", err)
+				log.Println("Error:", err)
 				return message, err
 			}
 			message.Data = wsnConnectParsed
@@ -182,7 +183,7 @@ func CreateSDPacket(token [16]byte, data []byte) WSPacket {
 func CreateGetInfoPacket(token [16]byte, infoReply *WSNGetInfoReply) WSPacket {
 	infodata, err := infoReply.ToData()
 	if err != nil {
-		fmt.Printf("Failed to serialize getinfo reply: %v", err)
+		log.Printf("Failed to serialize getinfo reply: %v", err)
 		return WSPacket{Length: 22, CmdType: 9, Token: token}
 	}
 	return WSPacket{Length: 22, CmdType: 9, Token: token, Data: infodata}

@@ -5,7 +5,6 @@
 package wsnet
 
 import (
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -33,7 +32,7 @@ func StartTailscaleWebsocketServer(address *string, hostname *string, uriPath *s
 		path = "/" + uuid4
 	}
 
-	fmt.Printf("Starting Tailscale WebSocket server on %s%s\n", *address, path)
+	log.Printf("Starting Tailscale WebSocket server on %s%s", *address, path)
 
 	// Set up HTTP handler
 	http.HandleFunc(path, WsHandler(infoReply))
@@ -48,7 +47,7 @@ func StartTailscaleWebsocketServer(address *string, hostname *string, uriPath *s
 		}
 
 		if tsAuthKey == "" {
-			fmt.Println("Tailscale auth key not provided. Provide it with -auth-key flag or TS_AUTH_KEY env variable. This is only required on the first run.")
+			log.Println("Tailscale auth key not provided. Provide it with -auth-key flag or TS_AUTH_KEY env variable. This is only required on the first run.")
 		}
 
 		s := &tsnet.Server{
@@ -91,8 +90,7 @@ func WsHandler(infoReply *WSNGetInfoReply) http.HandlerFunc {
 
 		ch := NewClientHandler()
 
-		// Example usage: use infoReply to send to client or log
-		log.Printf("infoReply: %+v\n", infoReply)
+		logVerbosef("infoReply: %+v", infoReply)
 		ch.inforeply = infoReply
 
 		ch.OnConnect(func(msg WSPacket) {
@@ -129,7 +127,6 @@ func WsHandler(infoReply *WSNGetInfoReply) http.HandlerFunc {
 				continue
 			}
 
-			//fmt.Printf("Received: %+v\n", message)
 			go ch.OnMessage(message)
 		}
 	}

@@ -3,7 +3,6 @@ package wsnet
 import (
 	"bytes"
 	"encoding/binary"
-	"fmt"
 	"strings"
 	"unicode/utf16"
 )
@@ -69,8 +68,7 @@ func encodeUTF16LE(s string) []byte {
 func (w *WSNGetInfoReply) ToData() ([]byte, error) {
 	buff := new(bytes.Buffer)
 
-	// Write the pid
-	fmt.Println("pid:", w.pid)
+	logVerbose("pid:", w.pid)
 	pidLength := uint32(len(w.pid))
 	binary.Write(buff, binary.BigEndian, pidLength)
 	if _, err := buff.WriteString(w.pid); err != nil {

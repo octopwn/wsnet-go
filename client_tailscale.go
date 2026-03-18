@@ -15,7 +15,10 @@ func main() {
     url := flag.String("url", "", "WebSocket server URL to connect to (e.g., ws://server.tailnet:80/uuid)")
     hostname := flag.String("hostname", "wsnet-client", "hostname to use in the tailnet")
     authKey := flag.String("auth-key", "", "Tailscale auth key (optional). If omitted, TS_AUTH_KEY env var is used")
+    verbose := flag.Bool("verbose", false, "Enable verbose logging")
     flag.Parse()
+
+    wsnet.Verbose = *verbose
 
     if *url == "" {
         log.Fatal("you must specify a -url to connect to")

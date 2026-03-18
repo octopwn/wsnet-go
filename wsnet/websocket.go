@@ -101,8 +101,7 @@ func WsHandler(infoReply *WSNGetInfoReply) http.HandlerFunc {
 
 		ch := NewClientHandler()
 
-		// Example usage: use infoReply to send to client or log
-		log.Printf("infoReply: %+v\n", infoReply)
+		logVerbosef("infoReply: %+v", infoReply)
 		ch.inforeply = infoReply
 
 		ch.OnConnect(func(msg WSPacket) {
@@ -139,7 +138,6 @@ func WsHandler(infoReply *WSNGetInfoReply) http.HandlerFunc {
 				continue
 			}
 
-			//fmt.Printf("Received: %+v\n", message)
 			go ch.OnMessage(message)
 		}
 	}

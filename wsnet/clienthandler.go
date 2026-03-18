@@ -69,13 +69,13 @@ func (c *ClientHandler) writePump() {
 }
 
 func (c *ClientHandler) OnConnect(sendfnt func(WSPacket)) {
-	fmt.Println("Client connected")
+	logVerbose("Client connected")
 	c.send = sendfnt
 	go c.writePump() // Start the writer goroutine
 }
 
 func (c *ClientHandler) OnDisconnect() {
-	fmt.Println("Client disconnected")
+	logVerbose("Client disconnected")
 	close(c.outgoing) // Close the channel to stop the writer goroutine
 	for token, conn := range c.connections {
 		conn.Close()
@@ -164,11 +164,10 @@ func (ch *ClientHandler) GetProcess(key string) (*ProcessHandle, bool) {
 }
 
 func (c *ClientHandler) OnMessage(message WSPacket) {
-	fmt.Printf("Received: %+v\n", message)
+	logVerbosef("Received: %+v", message)
 	switch message.CmdType {
 	case 0:
 		{
-			//fmt.Println("OK message received")
 			key := fmt.Sprintf("%x", message.Token)
 			if _, ok := c.connections[key]; ok {
 				c.RemoveConnection(key)
@@ -183,7 +182,6 @@ func (c *ClientHandler) OnMessage(message WSPacket) {
 		}
 	case 1:
 		{
-			//fmt.Println("Error message received")
 			key := fmt.Sprintf("%x", message.Token)
 			if conn, ok := c.connections[key]; ok {
 				conn.Close()
@@ -199,7 +197,6 @@ func (c *ClientHandler) OnMessage(message WSPacket) {
 		}
 	case 7:
 		{
-			//fmt.Println("Socket Data message received")
 			key := fmt.Sprintf("%x", message.Token)
 			if conn, ok := c.connections[key]; ok {
 				conn.Write(message.Data.([]byte))
@@ -207,14 +204,11 @@ func (c *ClientHandler) OnMessage(message WSPacket) {
 		}
 	case 8:
 		{
-			//fmt.Println("GetInfo message received")
-			// Create a new GetInfo packet
 			c.sendGetInfo(message.Token)
 		}
 
 	case 5:
 		{
-			//fmt.Println("Socket Connect message received")
 			if connData, ok := message.Data.(*WSNConnect); ok {
 				if connData.Bind {
 					if connData.Protocol == "UDP" {
@@ -230,14 +224,8 @@ func (c *ClientHandler) OnMessage(message WSPacket) {
 						c.sendContinue(message.Token)
 						return
 					} else {
-						// TCP server
-						//fmt.Println("TCP Protocol")
-						// Connect to the TCP server
-						// Create a new TCP connection
-						//fmt.Println("Connecting to TCP server at IP:", connData.IP, "Port:", connData.Port)
 						conn, err := net.Listen("tcp", connData.IP+":"+strconv.Itoa(int(connData.Port)))
 						if err != nil {
-							//fmt.Println("Error connecting to TCP server:", err)
 							c.sendError(message.Token, err)
 							return
 						}
@@ -249,31 +237,24 @@ func (c *ClientHandler) OnMessage(message WSPacket) {
 					}
 				}
 
-				fmt.Println("Connecting to", connData.Protocol, "server at IP:", connData.IP, "Port:", connData.Port)
+				logVerbosef("Connecting to %s server at IP: %s Port: %d", connData.Protocol, connData.IP, connData.Port)
 				if connData.Protocol == "TCP" {
-
-					//fmt.Println("TCP Protocol")
-					// Connect to the TCP server
-					// Create a new TCP connection
-					//fmt.Println("Connecting to TCP server at IP:", connData.IP, "Port:", connData.Port)
 					timeout := time.Duration(1000 * time.Millisecond)
 					conn, err := net.DialTimeout("tcp", connData.IP+":"+strconv.Itoa(int(connData.Port)), timeout)
 					if err != nil {
-						//fmt.Println("Error connecting to TCP server:", err)
 						c.sendError(message.Token, err)
 						return
 					}
 
 					tokenStr := fmt.Sprintf("%x", message.Token)
 					c.AddConnection(tokenStr, conn)
-					//fmt.Println("Connected to TCP server")
 
 					// Start a goroutine to handle incoming data
 					go c.handleIncomingData(message.Token, tokenStr, conn, c, nil)
 					c.sendContinue(message.Token)
 
 				} else {
-					fmt.Println("UDP Protocol")
+					logVerbose("UDP Protocol")
 					conn, err := net.ListenUDP("udp", nil)
 					if err != nil {
 						c.sendError(message.Token, err)
@@ -292,18 +273,13 @@ func (c *ClientHandler) OnMessage(message WSPacket) {
 					c.sendContinue(message.Token)
 				}
 			} else {
-				fmt.Println("Error parsing WSNConnect")
+				log.Println("Error parsing WSNConnect")
 				c.sendError(message.Token, fmt.Errorf("Error parsing WSNConnect"))
 			}
 		}
-	case 11, 15: //ntlm auth
+	case 11, 15:
 		{
-			//fmt.Println("NTLMAuth message received")
-			// create new sspi session
-			//fmt.Println("Creating new SSPISession")
 			sspiSession := NewSSPISession()
-			//fmt.Println("SSPISession created")
-			// Add the new sspi session to the map
 
 			result, err := sspiSession.processMessage(message)
 			if err != nil {
@@ -311,13 +287,12 @@ func (c *ClientHandler) OnMessage(message WSPacket) {
 				return
 			}
 			c.AddAuthHandler(fmt.Sprintf("%x", message.Token), sspiSession)
-			//fmt.Println("Sending continue")
 			c.outgoing <- *result
 			return
 		}
 	case 13, 17, 19:
 		{
-			fmt.Println("SSPIAuth message received")
+			logVerbose("SSPIAuth message received")
 
 			// Get the sspi session
 			sspiSession, ok := c.authHandlers[fmt.Sprintf("%x", message.Token)]
@@ -338,10 +313,10 @@ func (c *ClientHandler) OnMessage(message WSPacket) {
 			// data to be dispached can be either an UDP client or a SERVER SOCKET
 			// servers are not implemented yet
 
-			fmt.Println("Server Socket Data message received")
+			logVerbose("Server Socket Data message received")
 			connData, err := WSNClientSocketDataFromBytes(message.Data.([]byte))
 			if err != nil {
-				fmt.Println("Error parsing WSNServerSocketData")
+				log.Println("Error parsing WSNServerSocketData")
 				c.sendError(message.Token, fmt.Errorf("Error parsing WSNServerSocketData"))
 				return
 			}
@@ -349,12 +324,12 @@ func (c *ClientHandler) OnMessage(message WSPacket) {
 			key := fmt.Sprintf("%x", message.Token)
 			conn, ok := c.connections[key].(*net.UDPConn)
 			if !ok {
-				fmt.Println("Error getting connection")
+				log.Println("Error getting connection")
 				c.sendError(message.Token, fmt.Errorf("Error getting connection"))
 				return
 			}
 
-			fmt.Println("Sending data to client")
+			logVerbose("Sending data to client")
 			dst, err := net.ResolveUDPAddr("udp", connData.ClientIP+":"+strconv.Itoa(int(connData.ClientPort)))
 			if err != nil {
 				log.Fatal(err)
@@ -362,7 +337,7 @@ func (c *ClientHandler) OnMessage(message WSPacket) {
 
 			_, err = conn.WriteTo(connData.Data, dst)
 			if err != nil {
-				fmt.Println("Error sending data to client")
+				log.Println("Error sending data to client")
 				c.sendError(message.Token, fmt.Errorf("Error sending data to client"))
 				return
 			}
@@ -370,34 +345,24 @@ func (c *ClientHandler) OnMessage(message WSPacket) {
 
 	case 202:
 		{
-			//fmt.Println("WSNResolv message received")
 			go c.handleNameResolution(message.Token, message.Data.([]byte))
 		}
 	case 300:
 		{
-			//fmt.Println("List Directory message received")
-			// Parse the incoming struct
 			req, err := WSNDirLSFromBytes(message.Data.([]byte))
 			if err != nil {
 				c.sendError(message.Token, err)
 				return
 			}
-			//fmt.Println("Request:", req)
-			// List the directory
 			go c.listDirectory(message.Token, req.Path)
 		}
 	case 301:
 		{
-			//create directory
-			//fmt.Println("Create Directory message received")
-			// Parse the incoming struct
 			req, err := WSNDirMKFromBytes(message.Data.([]byte))
 			if err != nil {
 				c.sendError(message.Token, err)
 				return
 			}
-			//fmt.Println("Request:", req)
-			// Create the directory
 			err = os.Mkdir(req.Path, 0755)
 			if err != nil {
 				c.sendError(message.Token, err)
@@ -407,16 +372,11 @@ func (c *ClientHandler) OnMessage(message WSPacket) {
 		}
 	case 302:
 		{
-			//remove directory
-			//fmt.Println("Remove Directory message received")
-			// Parse the incoming struct
 			req, err := WSNDirRMFromBytes(message.Data.([]byte))
 			if err != nil {
 				c.sendError(message.Token, err)
 				return
 			}
-			//fmt.Println("Request:", req)
-			// Remove the directory
 			err = os.RemoveAll(req.Path)
 			if err != nil {
 				c.sendError(message.Token, err)
@@ -427,16 +387,11 @@ func (c *ClientHandler) OnMessage(message WSPacket) {
 		}
 	case 303:
 		{
-			//copy directory
-			//fmt.Println("Copy Directory message received")
-			// Parse the incoming struct
 			req, err := WSNDirCopyFromBytes(message.Data.([]byte))
 			if err != nil {
 				c.sendError(message.Token, err)
 				return
 			}
-			//fmt.Println("Request:", req)
-			// Copy the directory
 			err = CopyDirectory(req.SrcPath, req.DstPath)
 			if err != nil {
 				c.sendError(message.Token, err)
@@ -447,16 +402,11 @@ func (c *ClientHandler) OnMessage(message WSPacket) {
 		}
 	case 304:
 		{
-			//move directory
-			//fmt.Println("Move Directory message received")
-			// Parse the incoming struct
 			req, err := WSNDirMoveFromBytes(message.Data.([]byte))
 			if err != nil {
 				c.sendError(message.Token, err)
 				return
 			}
-			//fmt.Println("Request:", req)
-			// Move the directory
 			err = os.Rename(req.SrcPath, req.DstPath)
 			if err != nil {
 				c.sendError(message.Token, err)
@@ -466,15 +416,11 @@ func (c *ClientHandler) OnMessage(message WSPacket) {
 		}
 	case 305:
 		{
-			//fmt.Println("File Open message received")
-			// Parse the incoming struct
 			req, err := WSNFileOpenFromBytes(message.Data.([]byte))
 			if err != nil {
 				c.sendError(message.Token, err)
 				return
 			}
-			//fmt.Println("Request:", req)
-			// Open the file
 			file, err := openFilePythonMode(req.Path, req.Mode)
 			if err != nil {
 				c.sendError(message.Token, err)
@@ -488,14 +434,13 @@ func (c *ClientHandler) OnMessage(message WSPacket) {
 		}
 	case 306:
 		{
-			fmt.Println("File Read message received")
-			// Parse the incoming struct
+			logVerbose("File Read message received")
 			req, err := WSNFileReadFromBytes(message.Data.([]byte))
 			if err != nil {
 				c.sendError(message.Token, err)
 				return
 			}
-			fmt.Println("Request:", req)
+			logVerbose("Request:", req)
 			// Read the file
 			file, ok := c.fileHandles[fmt.Sprintf("%x", message.Token)]
 			if !ok {
@@ -524,16 +469,11 @@ func (c *ClientHandler) OnMessage(message WSPacket) {
 		}
 	case 307:
 		{
-			//filedata which is used to write file that already is opened
-			//fmt.Println("File Write message received")
-			// Parse the incoming struct
 			req, err := WSNFileDataFromBytes(message.Data.([]byte))
 			if err != nil {
 				c.sendError(message.Token, err)
 				return
 			}
-			//fmt.Println("Request:", req)
-			// Write the file
 			file, ok := c.fileHandles[fmt.Sprintf("%x", message.Token)]
 			if !ok {
 				c.sendError(message.Token, fmt.Errorf("File handle not found"))
@@ -549,16 +489,11 @@ func (c *ClientHandler) OnMessage(message WSPacket) {
 		}
 	case 309:
 		{
-			//copy file
-			//fmt.Println("Copy File message received")
-			// Parse the incoming struct
 			req, err := WSNFileCopyFromBytes(message.Data.([]byte))
 			if err != nil {
 				c.sendError(message.Token, err)
 				return
 			}
-			//fmt.Println("Request:", req)
-			// Copy the file
 			err = copyFile(req.SrcPath, req.DstPath, nil)
 			if err != nil {
 				c.sendError(message.Token, err)
@@ -569,16 +504,11 @@ func (c *ClientHandler) OnMessage(message WSPacket) {
 		}
 	case 310:
 		{
-			//move file
-			//fmt.Println("Move File message received")
-			// Parse the incoming struct
 			req, err := WSNFileMoveFromBytes(message.Data.([]byte))
 			if err != nil {
 				c.sendError(message.Token, err)
 				return
 			}
-			//fmt.Println("Request:", req)
-			// Move the file
 			err = os.Rename(req.SrcPath, req.DstPath)
 			if err != nil {
 				c.sendError(message.Token, err)
@@ -588,16 +518,11 @@ func (c *ClientHandler) OnMessage(message WSPacket) {
 		}
 	case 311:
 		{
-			//remove file
-			//fmt.Println("Remove File message received")
-			// Parse the incoming struct
 			req, err := WSNFileRMFromBytes(message.Data.([]byte))
 			if err != nil {
 				c.sendError(message.Token, err)
 				return
 			}
-			//fmt.Println("Request:", req)
-			// Remove the file
 			err = os.Remove(req.Path)
 			if err != nil {
 				c.sendError(message.Token, err)
@@ -607,8 +532,7 @@ func (c *ClientHandler) OnMessage(message WSPacket) {
 		}
 	case 312:
 		{
-			//filestat
-			fmt.Println("File Stat message received")
+			logVerbose("File Stat message received")
 			// nothing to parse, fetch file handle
 			file, ok := c.fileHandles[fmt.Sprintf("%x", message.Token)]
 			if !ok {
@@ -632,7 +556,6 @@ func (c *ClientHandler) OnMessage(message WSPacket) {
 				MTime: uint64(info.ModTime().Unix()),
 				CTime: uint64(info.ModTime().Unix()),
 			}
-			//fmt.Println("File Entry:", entry)
 			// Serialize the file entry
 			data, err := entry.ToData()
 			if err != nil {
@@ -661,8 +584,7 @@ func (c *ClientHandler) OnMessage(message WSPacket) {
 				return
 			}
 
-			// Debug: Print what we received
-			fmt.Printf("DEBUG: Received command: '%s', arguments: '%s'\n", req.Command, req.Arguments)
+			logVerbosef("Received command: '%s', arguments: '%s'", req.Command, req.Arguments)
 
 			// Parse command line - handle case where full command is in req.Command
 			var command string
@@ -686,8 +608,7 @@ func (c *ClientHandler) OnMessage(message WSPacket) {
 				args = strings.Fields(req.Arguments)
 			}
 
-			// Debug: Print parsed command and args
-			fmt.Printf("DEBUG: Parsed command: '%s', args: %v\n", command, args)
+			logVerbosef("Parsed command: '%s', args: %v", command, args)
 
 			cmd := exec.Command(command, args...)
 			
@@ -761,23 +682,22 @@ func (c *ClientHandler) OnMessage(message WSPacket) {
 			}
 			c.sendOK(message.Token)
 		}
-	case 404: // Process std request
+	case 404:
 		{
-			fmt.Println("Process STD message received")
+			logVerbose("Process STD message received")
 			req, err := WSNProcessSTDFromBytes(message.Data.([]byte))
 			if err != nil {
 				c.sendError(message.Token, err)
 				return
 			}
-			fmt.Println("Request:", req)
-			// Get the process for the token
+			logVerbose("Request:", req)
 			tokenStr := fmt.Sprintf("%x", message.Token)
 			processHandle, ok := c.GetProcess(tokenStr)
 			if !ok {
 				c.sendError(message.Token, fmt.Errorf("process not found for token"))
 				return
 			}
-			fmt.Println("Process handle:", processHandle)
+			logVerbose("Process handle:", processHandle)
 			// Write data to process stdin
 			if processHandle.stdin != nil {
 				_, err := processHandle.stdin.Write([]byte(req.Data))
@@ -820,8 +740,6 @@ func (c *ClientHandler) sendOK(token [16]byte, data ...string) {
 }
 
 func (c *ClientHandler) sendError(token [16]byte, err error) {
-	//fmt.Println("Error:", err)
-	// Create an error packet
 	byteErr := []byte(err.Error())
 	// create buffer with 4-byte length prefix + string data
 	buffer := make([]byte, 4+len(byteErr))
@@ -838,8 +756,6 @@ func (c *ClientHandler) sendError(token [16]byte, err error) {
 }
 
 func (c *ClientHandler) sendErrorString(token [16]byte, err string) {
-	//fmt.Println("Error:", err)
-	// Create an error packet
 	byteErr := []byte(err)
 	// create buffer with 4-byte length prefix + string data
 	buffer := make([]byte, 4+len(byteErr))
@@ -899,12 +815,9 @@ func (c *ClientHandler) handleIncomingData(token [16]byte, tokenStr string, conn
 		copy(connectionToken, connectionTokenOrNil)
 	}
 	for {
-		// Create a buffer to store the incoming data
-		buffer := make([]byte, 65535) // Adjust the buffer size as needed
+		buffer := make([]byte, 65535)
 		n, err := reader.Read(buffer)
 		if err != nil {
-			//fmt.Println("Error reading from connection:", err)
-			// Handle error (e.g., remove connection from map, close connection, etc.)
 			if connectionTokenOrNil != nil {
 				// this belongs to a server socket
 				ch.RemoveConnection(tokenStr)
@@ -915,11 +828,7 @@ func (c *ClientHandler) handleIncomingData(token [16]byte, tokenStr string, conn
 			}
 			break
 		}
-		// Process the received bytes
 		receivedData := buffer[:n]
-		//fmt.Printf("Received data on connection %s: %x\n", tokenStr, receivedData)
-		// You can add further processing of the receivedData as needed
-		// Send the received data to the client
 		if connectionTokenOrNil != nil {
 			// this belongs to a server socket
 			// extract port as string from conn.RemoteAddr()
@@ -928,7 +837,7 @@ func (c *ClientHandler) handleIncomingData(token [16]byte, tokenStr string, conn
 			remport = remport[strings.LastIndex(remport, ":")+1:]
 			remportInt, err := strconv.Atoi(remport)
 			if err != nil {
-				fmt.Println("Error converting port to int")
+				log.Println("Error converting port to int")
 				ch.RemoveConnection(tokenStr)
 				ch.sendOK(connectionToken)
 				break
@@ -942,7 +851,7 @@ func (c *ClientHandler) handleIncomingData(token [16]byte, tokenStr string, conn
 			}
 			data, err := ds.ToData()
 			if err != nil {
-				fmt.Printf("Failed to serialize server socket data: %v", err)
+				log.Printf("Failed to serialize server socket data: %v", err)
 				continue
 			}
 			ch.sendServerSocketData(token, data)
@@ -963,7 +872,7 @@ func (c *ClientHandler) handleIncomingDataUDP(token [16]byte, tokenStr string, c
 	for {
 		n, addr, err := udpConn.ReadFromUDP(buf)
 		if err != nil {
-			fmt.Printf("Error reading from UDP connection: %v\n", err)
+			log.Printf("Error reading from UDP connection: %v", err)
 			ch.RemoveConnection(tokenStr)
 			ch.sendOK(token)
 			break
@@ -980,7 +889,7 @@ func (c *ClientHandler) handleIncomingDataUDP(token [16]byte, tokenStr string, c
 		}
 		data, err := ds.ToData()
 		if err != nil {
-			fmt.Printf("Failed to serialize server socket data: %v", err)
+			log.Printf("Failed to serialize server socket data: %v", err)
 			continue
 		}
 		ch.sendServerSocketData(token, data)
@@ -992,7 +901,7 @@ func (c *ClientHandler) handleTCPServer(token [16]byte, tokenStr string, conn ne
 		// Accept a new connection
 		newConn, err := conn.Accept()
 		if err != nil {
-			fmt.Println("Error accepting connection:", err)
+			log.Println("Error accepting connection:", err)
 			ch.RemoveConnection(tokenStr)
 			ch.sendOK(token)
 			break
@@ -1007,17 +916,13 @@ func (c *ClientHandler) handleTCPServer(token [16]byte, tokenStr string, conn ne
 		copy(connectiontoken[:], connectiontokenRaw)
 
 		connectiontokenStr := fmt.Sprintf("%x", connectiontoken)
-		//fmt.Println("Accepted connection from", newConn.RemoteAddr())
-		// Add the new connection to the map
 		ch.AddConnection(connectiontokenStr, newConn)
-		// Start a goroutine to handle incoming data
 		go ch.handleIncomingData(token, tokenStr, newConn, ch, connectiontokenRaw)
-		// Send the connection token to the client with empty data
 		remaddr := newConn.RemoteAddr().String()
 		remport := remaddr[strings.LastIndex(remaddr, ":")+1:]
 		remportInt, err := strconv.Atoi(remport)
 		if err != nil {
-			fmt.Println("Error converting port to int")
+			log.Println("Error converting port to int")
 			ch.RemoveConnection(tokenStr)
 			ch.sendOK(token)
 			break
@@ -1031,7 +936,7 @@ func (c *ClientHandler) handleTCPServer(token [16]byte, tokenStr string, conn ne
 		}
 		data, err := ds.ToData()
 		if err != nil {
-			fmt.Printf("Failed to serialize server socket data: %v", err)
+			log.Printf("Failed to serialize server socket data: %v", err)
 			continue
 		}
 		ch.sendServerSocketData(token, data)
@@ -1057,8 +962,7 @@ func (c *ClientHandler) listDirectory(token [16]byte, dirPath string) {
 		// Get additional info (size, mod time) via os.FileInfo
 		info, err := e.Info()
 		if err != nil {
-			// If we can't get info for this entry, skip or handle error as you prefer
-			fmt.Printf("Warning: failed to stat %q: %v\n", fullPath, err)
+			log.Printf("Warning: failed to stat %q: %v", fullPath, err)
 			continue
 		}
 
@@ -1087,7 +991,7 @@ func (c *ClientHandler) listDirectory(token [16]byte, dirPath string) {
 		}
 		data, err := entry.ToData()
 		if err != nil {
-			fmt.Printf("Failed to serialize file entry: %v", err)
+			log.Printf("Failed to serialize file entry: %v", err)
 			continue
 		}
 		dataPacket := WSPacket{
@@ -1096,7 +1000,7 @@ func (c *ClientHandler) listDirectory(token [16]byte, dirPath string) {
 			Token:   token,
 			Data:    data,
 		}
-		fmt.Printf("Sending file entry: %v\n", entry)
+		logVerbosef("Sending file entry: %v", entry)
 		c.outgoing <- dataPacket
 	}
 

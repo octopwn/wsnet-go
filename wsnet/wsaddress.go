@@ -2,6 +2,7 @@ package wsnet
 
 import (
 	"fmt"
+	"log"
 	"net"
 	"strings"
 )
@@ -28,7 +29,7 @@ func getLocalIPAddresses() ([]string, error) {
 		// Retrieve addresses for the interface
 		addrs, err := iface.Addrs()
 		if err != nil {
-			fmt.Printf("warning: unable to get addresses for interface %s: %v\n", iface.Name, err)
+			log.Printf("warning: unable to get addresses for interface %s: %v", iface.Name, err)
 			continue
 		}
 
@@ -77,32 +78,28 @@ func printAccessibleURLs(address, path string, port string, ssl bool) error {
 		// Retrieve all local IP addresses
 		ips, err := getLocalIPAddresses()
 		if err != nil {
-			// disregard error, continue with address "
-			fmt.Printf("warning: failed to get local IP addresses: %v\n", err)
+			log.Printf("warning: failed to get local IP addresses: %v", err)
 			ips = []string{address}
 		}
 
 		if len(ips) == 0 {
-			fmt.Println("No valid IP addresses found.")
+			log.Println("No valid IP addresses found.")
 			return nil
 		}
 
-		// Construct and print URLs for each IP
-		fmt.Println("Accessible URLs:")
+		log.Println("Accessible URLs:")
 		for _, ip := range ips {
 			if port != "" {
-				fmt.Printf("%s://%s:%s%s\n", protocol, ip, port, path)
+				log.Printf("%s://%s:%s%s", protocol, ip, port, path)
 			} else {
-				fmt.Printf("%s://%s%s\n", protocol, ip, path)
+				log.Printf("%s://%s%s", protocol, ip, path)
 			}
 		}
 	} else {
-		// Address is not "0.0.0.0", construct URL directly
-		// Optionally, validate if the address is a valid IP or hostname
 		if port != "" {
-			fmt.Printf("Accessible URL: %s://%s:%s%s\n", protocol, address, port, path)
+			log.Printf("Accessible URL: %s://%s:%s%s", protocol, address, port, path)
 		} else {
-			fmt.Printf("Accessible URL: %s://%s%s\n", protocol, address, path)
+			log.Printf("Accessible URL: %s://%s%s", protocol, address, path)
 		}
 	}
 

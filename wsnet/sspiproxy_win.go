@@ -7,9 +7,9 @@ package wsnet
 import (
 	"errors"
 	"fmt"
+	"log"
 	"syscall"
 	"unsafe"
-	//"golang.org/x/sys/windows"
 )
 
 // --- Enums / Constants ---
@@ -619,10 +619,7 @@ func (s *SSPISession) processMessage(message WSPacket) (*WSPacket, error) {
 				return nil, fmt.Errorf("failed to parse Kerberos auth message: %w", err)
 			}
 
-			fmt.Println(authmsg)
-
-			// Process the message
-			// ...
+			logVerbose(authmsg)
 			if err := s.AcquireCreds(authmsg.Username, "Kerberos", uint32(authmsg.CredUsage)); err != nil {
 				return nil, fmt.Errorf("failed to acquire credentials: %w", err)
 			}
@@ -715,42 +712,38 @@ func localSSPITest() {
 
 	// Acquire credentials for "NTLM" or "Kerberos" package, for example
 	if err := session.AcquireCreds("MyUsername", "NTLM", SECPKG_CRED_OUTBOUND); err != nil {
-		fmt.Println("AcquireCreds error:", err)
+		log.Println("AcquireCreds error:", err)
 		return
 	}
 
-	// Initialize security context (first call)
 	errno, outToken, err := session.InitSecContextFirst("host/machine", ISC_REQ_CONFIDENTIALITY)
 	if err != nil {
-		fmt.Println("InitSecContextFirst error:", err)
+		log.Println("InitSecContextFirst error:", err)
 		return
 	}
-	fmt.Println("First token:", outToken)
-	errno = errno // avoid "declared and not used" error
+	log.Println("First token:", outToken)
+	errno = errno
 
-	// Suppose we got a challenge from the server. We call next:
 	challenge := []byte{ /* server's challenge token bytes */ }
 	errno, outToken2, err := session.InitSecContextNext("host/machine", ISC_REQ_CONFIDENTIALITY, challenge)
 	if err != nil {
-		fmt.Println("InitSecContextNext error:", err)
+		log.Println("InitSecContextNext error:", err)
 		return
 	}
-	fmt.Println("Next token:", outToken2)
+	log.Println("Next token:", outToken2)
 
-	// Suppose at this point we are authenticated. Query the session key:
 	errno, key, err := session.QuerySessionKey()
 	if err != nil {
-		fmt.Println("QuerySessionKey error:", err)
+		log.Println("QuerySessionKey error:", err)
 		return
 	}
-	errno = errno // avoid "declared and not used" error
-	fmt.Printf("Session key: %x\n", key)
+	errno = errno
+	log.Printf("Session key: %x", key)
 
-	// Test encryption:
 	encrypted, err := session.EncryptTestMessage()
 	if err != nil {
-		fmt.Println("EncryptTestMessage error:", err)
+		log.Println("EncryptTestMessage error:", err)
 		return
 	}
-	fmt.Printf("Encrypted data: %x\n", encrypted)
+	log.Printf("Encrypted data: %x", encrypted)
 }

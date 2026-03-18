@@ -15,7 +15,10 @@ func main() {
 	hostname := flag.String("hostname", "wsnet", "hostname to use in the tailnet")
 	uriPath := flag.String("uri-path", "<RANDOM>", "URI path (or UUID) for WebSocket connection")
 	authKey := flag.String("auth-key", "", "Tailscale auth key (optional). If omitted, TS_AUTH_KEY env var is used")
+	verbose := flag.Bool("verbose", false, "Enable verbose logging")
 	flag.Parse()
+
+	wsnet.Verbose = *verbose
 
 	// inforeply is static but requires domain lookups, so we build it here once
 	// and pass it to the WebSocket handler

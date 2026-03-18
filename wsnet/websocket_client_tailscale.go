@@ -6,7 +6,6 @@ package wsnet
 
 import (
     "context"
-    "fmt"
     "log"
     "net"
     "net/http"
@@ -39,7 +38,7 @@ func StartTailscaleWebsocketClient(serverURL *string, hostname *string, authKey 
         tsAuthKey = os.Getenv("TS_AUTH_KEY")
     }
     if tsAuthKey == "" {
-        fmt.Println("Tailscale auth key not provided. Provide it with -auth-key flag or TS_AUTH_KEY env variable. This is only required on the first run.")
+        log.Println("Tailscale auth key not provided. Provide it with -auth-key flag or TS_AUTH_KEY env variable. This is only required on the first run.")
     }
 
     // Spin up a lightweight tsnet node so we can communicate on the tailnet.
@@ -72,12 +71,10 @@ func StartTailscaleWebsocketClient(serverURL *string, hostname *string, authKey 
     for {
         select {
         case <-stop:
-            fmt.Println("Shutting down client…")
+            log.Println("Shutting down client…")
             return
         default:
         }
-
-        //fmt.Printf("Connecting to WebSocket server %s\n", *serverURL)
         conn, _, err := dialer.Dial(*serverURL, nil)
         if err != nil {
             log.Printf("failed to dial websocket: %v", err)
@@ -133,7 +130,6 @@ func StartTailscaleWebsocketClient(serverURL *string, hostname *string, authKey 
                     continue
                 }
 
-                //fmt.Printf("Received: %+v\n", message)
                 go ch.OnMessage(message)
             }
         }()
@@ -142,7 +138,7 @@ func StartTailscaleWebsocketClient(serverURL *string, hostname *string, authKey 
         select {
         case <-stop:
             conn.Close()
-            fmt.Println("Shutting down client…")
+            log.Println("Shutting down client…")
             return
         case <-done:
             conn.Close()
