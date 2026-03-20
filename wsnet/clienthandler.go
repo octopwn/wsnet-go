@@ -28,14 +28,15 @@ type ClientHandler struct {
 	fileHandles       map[string]*os.File
 	serverSockets     map[string]net.Listener
 	serverTokenToConn map[string]string
-	connectionsMu     sync.Mutex // Mutex for synchronizing access to connections
+	connectionsMu     sync.Mutex
 	fileHandlesMu     sync.Mutex
 	serverSocketsMu   sync.Mutex
 	authHandlers      map[string]*SSPISession
 	authHandlersMu    sync.Mutex
-	processes         map[string]*ProcessHandle // Map token to process handle
-	processesMu       sync.Mutex               // Mutex for process map
-	outgoing          chan WSPacket            // Channel for outgoing messages
+	processes         map[string]*ProcessHandle
+	processesMu       sync.Mutex
+	outgoing          chan WSPacket
+	done              chan struct{} // closed on disconnect; signals goroutines to stop
 	inforeply         *WSNGetInfoReply
 }
 
@@ -53,7 +54,19 @@ func NewClientHandler() *ClientHandler {
 		authHandlersMu:    sync.Mutex{},
 		processes:         make(map[string]*ProcessHandle),
 		processesMu:       sync.Mutex{},
-		outgoing:          make(chan WSPacket, 1024), // Initialize the outgoing channel
+		outgoing:          make(chan WSPacket, 1024),
+		done:              make(chan struct{}),
+	}
+}
+
+// trySend attempts to send a packet on the outgoing channel.
+// Returns false if the client has already disconnected.
+func (c *ClientHandler) trySend(pkt WSPacket) bool {
+	select {
+	case c.outgoing <- pkt:
+		return true
+	case <-c.done:
+		return false
 	}
 }
 
@@ -76,11 +89,14 @@ func (c *ClientHandler) OnConnect(sendfnt func(WSPacket)) {
 
 func (c *ClientHandler) OnDisconnect() {
 	logVerbose("Client disconnected")
-	close(c.outgoing) // Close the channel to stop the writer goroutine
+	close(c.done)     // signal all goroutines to stop sending
+	close(c.outgoing) // stop the writer goroutine
+	c.connectionsMu.Lock()
 	for token, conn := range c.connections {
 		conn.Close()
 		delete(c.connections, token)
 	}
+	c.connectionsMu.Unlock()
 }
 
 func (ch *ClientHandler) AddConnection(key string, conn net.Conn) {
@@ -287,14 +303,13 @@ func (c *ClientHandler) OnMessage(message WSPacket) {
 				return
 			}
 			c.AddAuthHandler(fmt.Sprintf("%x", message.Token), sspiSession)
-			c.outgoing <- *result
+			c.trySend(*result)
 			return
 		}
 	case 13, 17, 19:
 		{
 			logVerbose("SSPIAuth message received")
 
-			// Get the sspi session
 			sspiSession, ok := c.authHandlers[fmt.Sprintf("%x", message.Token)]
 			if !ok {
 				c.sendError(message.Token, fmt.Errorf("SSPI session not found"))
@@ -305,7 +320,7 @@ func (c *ClientHandler) OnMessage(message WSPacket) {
 				c.sendError(message.Token, err)
 				return
 			}
-			c.outgoing <- *result
+			c.trySend(*result)
 			return
 		}
 	case 200:
@@ -465,7 +480,7 @@ func (c *ClientHandler) OnMessage(message WSPacket) {
 				Token:   message.Token,
 				Data:    serializedData,
 			}
-			c.outgoing <- dataPacket
+			c.trySend(dataPacket)
 		}
 	case 307:
 		{
@@ -569,9 +584,9 @@ func (c *ClientHandler) OnMessage(message WSPacket) {
 				Token:   message.Token,
 				Data:    data,
 			}
-			c.outgoing <- dataPacket
+			c.trySend(dataPacket)
 		}
-	case 400: // Process list request
+	case 400:
 		{
 			// No payload to parse
 			go c.listProcesses(message.Token)
@@ -726,8 +741,7 @@ func (c *ClientHandler) sendResolvReply(token [16]byte, data []byte) {
 		Token:   token,
 		Data:    data,
 	}
-
-	c.outgoing <- dataPacket
+	c.trySend(dataPacket)
 }
 
 func (c *ClientHandler) sendOK(token [16]byte, data ...string) {
@@ -736,12 +750,11 @@ func (c *ClientHandler) sendOK(token [16]byte, data ...string) {
 		dataStr = data[0]
 	}
 	okPacket := CreateOKPacket(token, dataStr)
-	c.outgoing <- okPacket
+	c.trySend(okPacket)
 }
 
 func (c *ClientHandler) sendError(token [16]byte, err error) {
 	byteErr := []byte(err.Error())
-	// create buffer with 4-byte length prefix + string data
 	buffer := make([]byte, 4+len(byteErr))
 	binary.BigEndian.PutUint32(buffer[0:4], uint32(len(byteErr)))
 	copy(buffer[4:], byteErr)
@@ -751,13 +764,11 @@ func (c *ClientHandler) sendError(token [16]byte, err error) {
 		Token:   token,
 		Data:    buffer,
 	}
-
-	c.outgoing <- errorPacket
+	c.trySend(errorPacket)
 }
 
 func (c *ClientHandler) sendErrorString(token [16]byte, err string) {
 	byteErr := []byte(err)
-	// create buffer with 4-byte length prefix + string data
 	buffer := make([]byte, 4+len(byteErr))
 	binary.BigEndian.PutUint32(buffer[0:4], uint32(len(byteErr)))
 	copy(buffer[4:], byteErr)
@@ -767,8 +778,7 @@ func (c *ClientHandler) sendErrorString(token [16]byte, err string) {
 		Token:   token,
 		Data:    buffer,
 	}
-
-	c.outgoing <- errorPacket
+	c.trySend(errorPacket)
 }
 
 func (c *ClientHandler) sendSocketData(token [16]byte, data []byte) {
@@ -778,8 +788,7 @@ func (c *ClientHandler) sendSocketData(token [16]byte, data []byte) {
 		Token:   token,
 		Data:    data,
 	}
-
-	c.outgoing <- dataPacket
+	c.trySend(dataPacket)
 }
 
 func (c *ClientHandler) sendServerSocketData(token [16]byte, data []byte) {
@@ -789,7 +798,7 @@ func (c *ClientHandler) sendServerSocketData(token [16]byte, data []byte) {
 		Token:   token,
 		Data:    data,
 	}
-	c.outgoing <- dataPacket
+	c.trySend(dataPacket)
 }
 
 func (c *ClientHandler) sendContinue(token [16]byte, data ...string) {
@@ -798,12 +807,12 @@ func (c *ClientHandler) sendContinue(token [16]byte, data ...string) {
 		dataStr = data[0]
 	}
 	continuePacket := CreateContinuePacket(token, dataStr)
-	c.outgoing <- continuePacket
+	c.trySend(continuePacket)
 }
 
 func (c *ClientHandler) sendGetInfo(token [16]byte) {
 	getInfoPacket := CreateGetInfoPacket(token, c.inforeply)
-	c.outgoing <- getInfoPacket
+	c.trySend(getInfoPacket)
 }
 
 // Method to handle incoming socket data
@@ -1001,12 +1010,11 @@ func (c *ClientHandler) listDirectory(token [16]byte, dirPath string) {
 			Data:    data,
 		}
 		logVerbosef("Sending file entry: %v", entry)
-		c.outgoing <- dataPacket
+		c.trySend(dataPacket)
 	}
 
 	c.sendOK(token)
 }
-
 
 // listProcesses enumerates running processes (Linux /proc based) and streams WSNProcessInfo packets.
 func (c *ClientHandler) listProcesses(token [16]byte) {
@@ -1059,7 +1067,7 @@ func (c *ClientHandler) listProcesses(token [16]byte) {
 			Token:   token,
 			Data:    data,
 		}
-		c.outgoing <- pkt
+		c.trySend(pkt)
 	}
 
 	c.sendOK(token)
@@ -1075,13 +1083,14 @@ func (c *ClientHandler) streamProcessOutput(token [16]byte, r io.ReadCloser, out
 		if err != nil {
 			continue
 		}
-		// CmdType 404 == PROCSTD
 		pkt := WSPacket{
 			Length:  uint32(22 + len(data)),
 			CmdType: 404,
 			Token:   token,
 			Data:    data,
 		}
-		c.outgoing <- pkt
+		if !c.trySend(pkt) {
+			return
+		}
 	}
 }

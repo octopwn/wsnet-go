@@ -2,13 +2,12 @@ package wsnet
 
 import (
     "bytes"
+    "context"
     "encoding/binary"
     "fmt"
     "net"
     "sync"
-	"log"
-	"time"
-	"context"
+    "time"
 )
 
 // WSNResolv is the Go equivalent of the Python WSNResolv class.
@@ -107,7 +106,7 @@ func parseAndResolve(b []byte) ([]byte, error) {
                 // It's an IP -> do a reverse DNS lookup
                 names, err := net.DefaultResolver.LookupAddr(ctx, addr)
                 if err != nil || len(names) == 0 {
-                    log.Printf("Reverse lookup failed for IP %q: %v\n", addr, err)
+                    logVerbosef("Reverse lookup failed for IP %q: %v", addr, err)
                     results[i] = ""
                 } else {
                     // Typically net.LookupAddr returns FQDNs, e.g. ["example.com."]
@@ -118,7 +117,7 @@ func parseAndResolve(b []byte) ([]byte, error) {
                 // It's a hostname -> do a forward lookup
                 ips, err := net.DefaultResolver.LookupHost(ctx, addr)
                 if err != nil || len(ips) == 0 {
-                    log.Printf("Forward lookup failed for host %q: %v\n", addr, err)
+                    logVerbosef("Forward lookup failed for host %q: %v", addr, err)
                     results[i] = ""
                 } else {
                     results[i] = ips[0] // pick the first IP
